@@ -150,6 +150,9 @@ jobs:
           os_version="${{ steps.get-latest.outputs.os_version }}"
           branch="${{ steps.pr.outputs.head_branch }}"
 
+          # Delete remote branch if it exists (from failed runs)
+          git push origin --delete "$branch" 2>/dev/null || true
+
           # Create new branch
           git checkout -b "$branch"
 
