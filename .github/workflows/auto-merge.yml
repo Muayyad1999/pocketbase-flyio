@@ -1,0 +1,71 @@
+name: Auto-Merge Updates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-Merge Dependency Updates
+    runs-on: ubuntu-latest
+
+    # Only auto-merge PRs from github-actions bot
+    if: github.actor == 'github-actions[bot]' && contains(github.event.pull_request.title, 'Update PocketBase')
+
+    steps:
+      - name: Check PR details
+        id: pr-check
+        run: |
+          echo "PR Title: ${{ github.event.pull_request.title }}"
+          echo "PR Author: ${{ github.actor }}"
+          echo "PR Labels: ${{ join(github.event.pull_request.labels.*.name, ', ') }}"
+
+      - name: Wait for tests to complete
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-name: 'Test Docker Build'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+          allowed-conclusions: success
+
+      - name: Auto-approve PR
+        uses: hmarr/auto-approve-action@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --auto \
+            --squash \
+            --delete-branch
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🤖 **Auto-merge enabled!**\n\nThis PR will be automatically merged after all checks pass.\n\n✅ Tests passed\n✅ Auto-approved\n🚀 Ready to merge'
+            });
+
+      - name: Merge summary
+        run: |
+          echo "## 🤖 Auto-Merge Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR:** #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Title:** ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** Auto-merge enabled ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The PR will be automatically merged and deployed." >> $GITHUB_STEP_SUMMARY

@@ -4,16 +4,19 @@ PocketBase&trade; is an open source backend consisting of embedded database (SQL
 
 This repository provides a production-ready Docker setup for deploying PocketBase to [Fly.io](https://fly.io) with automated updates and CI/CD.
 
-## ✨ Features
+## ✨ Features - Deploy Once, Forget Forever!
 
-- 🐳 **Optimized Docker Image** - Multi-stage build with Alpine Linux
-- ☁️ **Fly.io Ready** - Pre-configured `fly.toml` for instant deployment
-- 🤖 **Auto-Updates** - GitHub Actions workflow checks for new PocketBase releases daily
-- 🚢 **CI/CD Pipeline** - Automated deployment to Fly.io on push
-- 🔒 **Security First** - Settings encryption, HTTPS enforcement, non-root user option
+- 🤖 **100% Automated** - Zero manual maintenance required!
+- 🔄 **Auto-Updates** - Daily checks → Auto-PR → Auto-merge → Auto-deploy
+- 💾 **Auto-Backups** - Daily database backups (30-day retention)
+- 🚢 **Auto-Deploy** - Merges trigger instant deployment
+- 🧪 **Auto-Testing** - PRs validated automatically
+- 🐳 **Optimized Docker** - Multi-stage build with Alpine Linux
+- ☁️ **Fly.io Ready** - Pre-configured for instant deployment
+- 🔒 **Security First** - Encryption, HTTPS, comprehensive security guide
 - 📦 **Persistent Storage** - Volume mounting for SQLite database
 - 📊 **Health Checks** - Automatic monitoring and recovery
-- 🔄 **Auto-Scaling** - Scale to zero for cost optimization
+- 🔄 **Auto-Scaling** - Scale to zero for cost savings
 
 ## 🚀 Quick Start
 
@@ -44,9 +47,13 @@ fly open
 
 ## 📚 Documentation
 
+- [⚡ Quick Start](QUICKSTART.md) - 5-minute deployment
+- [🤖 Automation Guide](AUTOMATION.md) - **Complete automation setup (READ THIS!)**
+- [🚀 Deployment Guide](DEPLOY.md) - Detailed deployment walkthrough
+- [🔒 Security Guide](SECURITY.md) - Security best practices
+- [🤝 Contributing Guide](CONTRIBUTING.md) - Development guidelines
+- [📝 Changelog](CHANGELOG.md) - Version history
 - [PocketBase Official Docs](https://pocketbase.io/docs)
-- [Deployment Guide](DEPLOY.md) - Complete fly.io deployment walkthrough
-- [Changelog](CHANGELOG.md) - Version history and updates
 
 
 ## 🤖 Automated Updates

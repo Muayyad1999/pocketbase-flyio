@@ -1,0 +1,85 @@
+name: Automated Database Backup
+
+on:
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    name: Backup PocketBase Database
+    runs-on: ubuntu-latest
+
+    # Only run on main repository (not forks)
+    if: github.repository_owner == 'Muayyad1999'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create backup
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "📦 Starting automated backup..."
+          DATE=$(date +%Y%m%d-%H%M%S)
+          BACKUP_FILE="pocketbase-backup-${DATE}.tar.gz"
+
+          # Create backup on server
+          echo "Creating backup on Fly.io server..."
+          flyctl ssh console -a al-salam-sys -C "cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db"
+
+          # Download backup
+          echo "Downloading backup..."
+          mkdir -p backups
+          flyctl ssh sftp get -a al-salam-sys /tmp/backup.tar.gz "backups/${BACKUP_FILE}"
+
+          # Cleanup remote
+          echo "Cleaning up remote backup..."
+          flyctl ssh console -a al-salam-sys -C "rm /tmp/backup.tar.gz"
+
+          echo "✅ Backup completed: ${BACKUP_FILE}"
+          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocketbase-backup-${{ github.run_number }}
+          path: backups/
+          retention-days: 30
+          compression-level: 9
+
+      - name: Commit backup to repository (optional)
+        if: false  # Set to true if you want backups in git
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backups/
+          git commit -m "chore: automated database backup" || echo "No changes to commit"
+          git push
+
+      - name: Backup summary
+        run: |
+          BACKUP_SIZE=$(du -h backups/${{ env.BACKUP_FILE }} | cut -f1)
+          echo "## 📦 Backup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **File:** \`${{ env.BACKUP_FILE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Size:** ${BACKUP_SIZE}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Retention:** 30 days" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Backup stored as GitHub artifact" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Backup failed!" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs for details." >> $GITHUB_STEP_SUMMARY
