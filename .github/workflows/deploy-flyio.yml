@@ -1,0 +1,62 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'Dockerfile'
+      - 'fly.toml'
+      - 'scripts/**'
+      - '.github/workflows/deploy-flyio.yml'
+  workflow_dispatch:
+    # Allow manual deployment
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+
+    # Only run on main repository (not forks)
+    if: github.repository_owner == 'Muayyad1999'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "🚀 Deploying to Fly.io..."
+          flyctl deploy --remote-only
+          echo "✅ Deployment completed!"
+
+      - name: Get deployment status
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "📊 Checking deployment status..."
+          flyctl status
+          echo "✅ Application is running!"
+
+      - name: Run health check
+        run: |
+          echo "🏥 Running health check..."
+          APP_URL="https://al-salam-sys.fly.dev"
+
+          # Wait for app to be ready
+          sleep 10
+
+          # Check if app responds
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/_/")
+
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 301 ] || [ "$HTTP_CODE" -eq 302 ]; then
+            echo "✅ Health check passed! (HTTP $HTTP_CODE)"
+          else
+            echo "⚠️  Health check returned HTTP $HTTP_CODE"
+            echo "App might still be starting up..."
+          fi

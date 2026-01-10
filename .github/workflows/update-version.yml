@@ -1,0 +1,176 @@
+name: Auto Update PocketBase Version
+
+on:
+  schedule:
+    # Run daily at 8 AM UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DEPENDENCY_NAME: PocketBase
+  DOCKERFILE_PATH: Dockerfile
+  DOCKERFILE_VERSION_KEY: POCKETBASE_VERSION
+  DOCKERFILE_OS_VERSION_KEY: ALPINE_VERSION
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git user
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Get current PocketBase version
+        id: get-current
+        run: |
+          get_version() { grep "ARG $1=" "$DOCKERFILE_PATH" | cut -d '=' -f2 | tr -d '[:space:]'; }
+          version="$(get_version "$DOCKERFILE_VERSION_KEY")"
+          os_version="$(get_version "$DOCKERFILE_OS_VERSION_KEY")"
+
+          echo "📦 Current PocketBase version: $version (Alpine: $os_version)"
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "os_version=$os_version" >> $GITHUB_OUTPUT
+
+      - name: Get latest PocketBase version from GitHub
+        id: get-latest
+        run: |
+          # Fetch latest PocketBase version
+          version="$(curl -sSfL -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+            https://api.github.com/repos/pocketbase/pocketbase/releases/latest \
+            | jq -r '.tag_name' | tr -d 'v')"
+
+          if [ -z "$version" ]; then
+            echo "❌ Failed to fetch latest PocketBase version" >&2
+            exit 1
+          fi
+
+          # Fetch latest Alpine version
+          os_version="$(curl -sSfL https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/latest-releases.yaml \
+            | grep 'version:' | head -1 | awk '{print $2}' | tr -d '[:space:]')"
+
+          # Verify Alpine version exists on Docker Hub
+          docker_alpine_tag_status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/library/alpine/tags/$os_version/")
+
+          if [ "$docker_alpine_tag_status" -ne 200 ]; then
+            os_version="${{ steps.get-current.outputs.os_version }}"
+            echo "⚠️  Failed to fetch latest Alpine version, using existing: $os_version"
+          fi
+
+          echo "✅ Latest PocketBase version: $version (Alpine: $os_version)"
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "os_version=$os_version" >> $GITHUB_OUTPUT
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          current_version="${{ steps.get-current.outputs.version }}"
+          latest_version="${{ steps.get-latest.outputs.version }}"
+          current_os="${{ steps.get-current.outputs.os_version }}"
+          latest_os="${{ steps.get-latest.outputs.os_version }}"
+
+          if [ "$latest_version" = "$current_version" ] && [ "$latest_os" = "$current_os" ]; then
+            echo "✅ Already up to date!"
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+          else
+            echo "🔄 Update available: $current_version → $latest_version"
+            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare pull request metadata
+        if: steps.check.outputs.up_to_date == 'false'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.get-latest.outputs.version }}"
+          os_version="${{ steps.get-latest.outputs.os_version }}"
+          title="Update PocketBase to v$version (Alpine $os_version)"
+          head_branch="update/pocketbase-v$version"
+
+          # Check if PR already exists
+          prs=$(gh pr list --search "$title" --json title | jq length)
+          if [ "$prs" -gt 0 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "ℹ️  PR already exists for this version"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "title=$title" >> $GITHUB_OUTPUT
+          echo "head_branch=$head_branch" >> $GITHUB_OUTPUT
+
+          # Create PR body with release notes
+          cat > /tmp/pr_body.md << EOF
+          ## 📦 Update PocketBase to v$version
+
+          This automated PR updates PocketBase from **v${{ steps.get-current.outputs.version }}** to **v$version**.
+
+          ### Changes
+          - 🚀 PocketBase: \`${{ steps.get-current.outputs.version }}\` → \`$version\`
+          - 🐧 Alpine Linux: \`${{ steps.get-current.outputs.os_version }}\` → \`$os_version\`
+
+          ### Release Notes
+          View the full changelog: [PocketBase v$version Release](https://github.com/pocketbase/pocketbase/releases/tag/v$version)
+
+          ### Deployment Checklist
+          - [ ] Review the PocketBase changelog for breaking changes
+          - [ ] Test locally before merging
+          - [ ] Deploy to fly.io after merge: \`fly deploy\`
+
+          ---
+          🤖 Automatically generated by GitHub Actions
+          EOF
+
+      - name: Create update branch and pull request
+        if: steps.pr.outputs.exists == 'false' && steps.check.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.get-latest.outputs.version }}"
+          os_version="${{ steps.get-latest.outputs.os_version }}"
+          branch="${{ steps.pr.outputs.head_branch }}"
+
+          # Create new branch
+          git checkout -b "$branch"
+
+          # Update Dockerfile versions
+          sed -i "s|ARG $DOCKERFILE_VERSION_KEY=.*|ARG $DOCKERFILE_VERSION_KEY=$version|" "$DOCKERFILE_PATH"
+          sed -i "s|ARG $DOCKERFILE_OS_VERSION_KEY=.*|ARG $DOCKERFILE_OS_VERSION_KEY=$os_version|" "$DOCKERFILE_PATH"
+
+          # Update CHANGELOG if exists
+          if [ -f "CHANGELOG.md" ]; then
+            sed -i "2i\\## [v$version] - $(date +%Y-%m-%d)\n\n- Updated PocketBase to v$version\n- Updated Alpine Linux to v$os_version\n" CHANGELOG.md
+          fi
+
+          # Commit changes
+          git add .
+          git commit -m "chore: update PocketBase to v$version
+
+- Update PocketBase from v${{ steps.get-current.outputs.version }} to v$version
+- Update Alpine Linux to v$os_version
+
+Auto-generated by GitHub Actions workflow"
+
+          # Push branch
+          git push origin "$branch"
+
+          # Create pull request
+          gh pr create \
+            --title "${{ steps.pr.outputs.title }}" \
+            --body-file /tmp/pr_body.md \
+            --base master \
+            --head "$branch" \
+            --label "dependencies" \
+            --label "automation"
+
+          echo "✅ Pull request created successfully!"

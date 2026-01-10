@@ -1,19 +1,96 @@
-# docker-pocketbase
+# 🚀 PocketBase Docker for Fly.io
 
 PocketBase&trade; is an open source backend consisting of embedded database (SQLite) with realtime subscriptions, built-in auth management, convenient dashboard UI and simple REST-ish API.
 
-## Documentation:
+This repository provides a production-ready Docker setup for deploying PocketBase to [Fly.io](https://fly.io) with automated updates and CI/CD.
 
-- [PocketBase](https://pocketbase.io/docs)
+## ✨ Features
+
+- 🐳 **Optimized Docker Image** - Multi-stage build with Alpine Linux
+- ☁️ **Fly.io Ready** - Pre-configured `fly.toml` for instant deployment
+- 🤖 **Auto-Updates** - GitHub Actions workflow checks for new PocketBase releases daily
+- 🚢 **CI/CD Pipeline** - Automated deployment to Fly.io on push
+- 🔒 **Security First** - Settings encryption, HTTPS enforcement, non-root user option
+- 📦 **Persistent Storage** - Volume mounting for SQLite database
+- 📊 **Health Checks** - Automatic monitoring and recovery
+- 🔄 **Auto-Scaling** - Scale to zero for cost optimization
+
+## 🚀 Quick Start
+
+### Deploy to Fly.io (5 minutes)
+
+```bash
+# 1. Clone this repository
+git clone https://github.com/Muayyad1999/pocketbase-flyio.git
+cd pocketbase-flyio
+
+# 2. Login to Fly.io
+fly auth login
+
+# 3. Create persistent volume
+fly volumes create pb_data --region ams --size 1
+
+# 4. Set encryption key (recommended)
+fly secrets set POCKETBASE_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+
+# 5. Deploy!
+fly deploy
+
+# 6. Open your app
+fly open
+```
+
+**📖 For detailed deployment instructions, see [DEPLOY.md](DEPLOY.md)**
+
+## 📚 Documentation
+
+- [PocketBase Official Docs](https://pocketbase.io/docs)
+- [Deployment Guide](DEPLOY.md) - Complete fly.io deployment walkthrough
+- [Changelog](CHANGELOG.md) - Version history and updates
 
 
-## Docker registry
+## 🤖 Automated Updates
 
-The recommended way to get the PocketBase&trade; Docker Image is to pull the prebuilt image from the [Docker Hub Registry](https://hub.docker.com/r/adrianmusante/pocketbase).
+This repository includes a GitHub Actions workflow that:
 
-To use a specific version, you can pull a versioned tag. You can view the [list of available versions](https://hub.docker.com/r/adrianmusante/pocketbase/tags/) in the Docker Hub Registry.
+- ✅ Checks for new PocketBase releases **daily**
+- ✅ Automatically creates a Pull Request with version updates
+- ✅ Updates the CHANGELOG.md
+- ✅ Can be triggered manually via GitHub Actions
 
-- [`0`, `0.34`, `latest` (pocketbase/Dockerfile)](https://github.com/adrianmusante/docker-pocketbase/blob/main/pocketbase/Dockerfile)
+**Current Version:** PocketBase v0.35.1 on Alpine Linux 3.22.2
+
+### Enable Auto-Deployment (Optional)
+
+To enable automatic deployment to Fly.io when PRs are merged:
+
+1. Generate a Fly.io deploy token:
+   ```bash
+   fly tokens create deploy
+   ```
+
+2. Add it as a GitHub Secret:
+   - Go to: Repository → Settings → Secrets → Actions
+   - Name: `FLY_API_TOKEN`
+   - Value: [your token]
+
+Now every push to `master` will automatically deploy to Fly.io! 🎉
+
+## 🐳 Docker Usage
+
+### Build Locally
+
+```bash
+docker build -t pocketbase:local .
+```
+
+### Run with Docker Compose
+
+```bash
+docker compose up -d
+```
+
+Access at: `http://localhost:8090`
 
 
 ## Configuration
