@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Data and volumes
+pb_data/
+data/
+volumes/
+*.db
+*.db-shm
+*.db-wal
+
+# Environment files
+.env
+.env.*
+
+# Docker files
+docker-compose.yml
+docker-compose.*.yml
+
+# Documentation
+README.md
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Fly.io
+.fly/
+
+# OS
+.DS_Store
+Thumbs.db

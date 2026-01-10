@@ -1,0 +1,46 @@
+# PocketBase data and runtime files
+pb_data/
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Docker volumes
+volumes/
+
+# Logs
+*.log
+logs/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Node modules (if any frontend tooling is added)
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Fly.io
+.fly/

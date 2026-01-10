@@ -1,0 +1,31 @@
+# This docker-compose is only for local
+services:
+  pocketbase:
+    image: adrianmusante/pocketbase:0.0.0
+    container_name: pocketbase
+    build:
+      context: pocketbase
+      args:
+        BUILD_TAG: 0.0.0@000000
+    env_file:
+      - .env
+    environment:
+      - POCKETBASE_DEBUG=${POCKETBASE_DEBUG:-true}
+      - POCKETBASE_PORT_NUMBER=3000
+      - POCKETBASE_ENCRYPTION_KEY=${POCKETBASE_ENCRYPTION_KEY:-}
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL:-admin@example.com}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD:-admin1234567}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./_local/data/pocketbase:/pocketbase
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/api/health" ]
+      interval: 2s
+      timeout: 10s
+      retries: 10
+
+networks:
+  default:
+    name: pocketbase_network
+    driver: bridge

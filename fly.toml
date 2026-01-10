@@ -1,0 +1,34 @@
+app = "al-salam-sys"
+primary_region = "ams"
+
+[deploy]
+strategy = "immediate"
+
+[http_service]
+auto_start_machines = true
+auto_stop_machines = "stop"
+force_https = true
+internal_port = 8090
+min_machines_running = 0
+processes = [ "app" ]
+
+[http_service.concurrency]
+type = "connections"
+hard_limit = 100
+soft_limit = 80
+
+[[http_service.checks]]
+grace_period = "10s"
+interval = "30s"
+method = "GET"
+path = "/_/"
+timeout = "5s"
+
+[[mounts]]
+destination = "/pocketbase/data"
+source = "pb_data"
+
+[[vm]]
+cpu_kind = "shared"
+cpus = 1
+memory = "1gb"
