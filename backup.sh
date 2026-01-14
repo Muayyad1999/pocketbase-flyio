@@ -96,7 +96,7 @@ fi
 
 # Create backup on the server
 info "Step 1/4: Creating backup on server..."
-flyctl ssh console -a "$APP_NAME" -C "cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db"
+flyctl ssh console -a "$APP_NAME" -C "/bin/sh -c 'cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db'"
 
 success "Backup created on server"
 
