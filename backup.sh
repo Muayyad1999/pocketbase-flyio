@@ -67,6 +67,33 @@ echo ""
 info "Creating backup for app: $APP_NAME"
 echo ""
 
+# Check machine status to ensure we can connect
+info "Checking Fly.io machine status..."
+if ! command -v jq &> /dev/null; then
+    warning "jq is not installed. Skipping automatic machine check."
+    echo "  If the app is suspended/stopped, the backup might fail."
+else
+    MACHINES_JSON=$(flyctl machines list -a "$APP_NAME" --json)
+    STARTED_COUNT=$(echo "$MACHINES_JSON" | jq '[.[] | select(.state == "started")] | length')
+    
+    if [ "$STARTED_COUNT" -eq 0 ]; then
+        warning "No running machines found. Attempting to start..."
+        STOPPED_IDS=$(echo "$MACHINES_JSON" | jq -r '.[] | select(.state == "stopped") | .id')
+        
+        if [ -n "$STOPPED_IDS" ]; then
+            for ID in $STOPPED_IDS; do
+                info "Starting machine $ID..."
+                flyctl machine start "$ID" -a "$APP_NAME"
+            done
+            info "Waiting 20s for machine startup..."
+            sleep 20
+        else
+           # If no machines found at all, we proceed but expect failure
+           warning "No specific machines found. Proceeding anyway..."
+        fi
+    fi
+fi
+
 # Create backup on the server
 info "Step 1/4: Creating backup on server..."
 flyctl ssh console -a "$APP_NAME" -C "cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db"

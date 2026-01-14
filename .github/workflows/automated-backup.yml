@@ -28,23 +28,86 @@ jobs:
       - name: Create backup
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RCLONE_CONF_EXISTS: ${{ secrets.RCLONE_CONF != '' }}
         run: |
           echo "📦 Starting automated backup..."
+          APP_NAME="al-salam-sys"
           DATE=$(date +%Y%m%d-%H%M%S)
           BACKUP_FILE="pocketbase-backup-${DATE}.tar.gz"
 
-          # Create backup on server
-          echo "Creating backup on Fly.io server..."
-          flyctl ssh console -a al-salam-sys -C "cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db"
+          # ==============================================================================
+          # 1. Ensure Fly.io App Machines are Running
+          # ==============================================================================
+          echo "Checking machine status for $APP_NAME..."
+          
+          # List machines in JSON format
+          MACHINES_JSON=$(flyctl machines list -a "$APP_NAME" --json)
+          
+          # Check for started machines
+          STARTED_COUNT=$(echo "$MACHINES_JSON" | jq '[.[] | select(.state == "started")] | length')
+          
+          if [ "$STARTED_COUNT" -gt 0 ]; then
+            echo "✅ Found $STARTED_COUNT running machine(s)."
+          else
+            echo "⚠️ No running machines found. Attempting to start stopped machines..."
+            
+            STOPPED_IDS=$(echo "$MACHINES_JSON" | jq -r '.[] | select(.state == "stopped") | .id')
+            
+            if [ -z "$STOPPED_IDS" ]; then
+              echo "❌ No machines found (started or stopped). Please check your Fly.io deployment."
+              exit 1
+            fi
+            
+            for ID in $STOPPED_IDS; do
+              echo "Starting machine $ID..."
+              flyctl machine start "$ID" -a "$APP_NAME"
+            done
+            
+            # Wait for machines to initialize
+            echo "Waiting 30s for machines to stabilize..."
+            sleep 30
+          fi
 
-          # Download backup
+          # ==============================================================================
+          # 2. Create Backup on Server
+          # ==============================================================================
+          echo "Creating backup on Fly.io server..."
+          
+          # Retry logic for SSH connection which can be flaky immediately after start
+          MAX_RETRIES=3
+          COUNT=0
+          SUCCESS=0
+          
+          while [ $COUNT -lt $MAX_RETRIES ]; do
+            if flyctl ssh console -a "$APP_NAME" -C "cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db"; then
+              SUCCESS=1
+              break
+            fi
+            echo "⚠️ SSH command failed. Retrying in 10s..."
+            sleep 10
+            COUNT=$((COUNT+1))
+          done
+
+          if [ $SUCCESS -eq 0 ]; then
+            echo "❌ Failed to create backup on server after $MAX_RETRIES attempts."
+            exit 1
+          fi
+
+          # ==============================================================================
+          # 3. Download Backup
+          # ==============================================================================
           echo "Downloading backup..."
           mkdir -p backups
-          flyctl ssh sftp get -a al-salam-sys /tmp/backup.tar.gz "backups/${BACKUP_FILE}"
+          if ! flyctl ssh sftp get -a "$APP_NAME" /tmp/backup.tar.gz "backups/${BACKUP_FILE}"; then
+            echo "❌ Failed to download backup."
+            exit 1
+          fi
 
-          # Cleanup remote
+          # ==============================================================================
+          # 4. Cleanup Remote
+          # ==============================================================================
           echo "Cleaning up remote backup..."
-          flyctl ssh console -a al-salam-sys -C "rm /tmp/backup.tar.gz"
+          flyctl ssh console -a "$APP_NAME" -C "rm /tmp/backup.tar.gz" || echo "⚠️ Warning: Failed to cleanup remote file"
 
           echo "✅ Backup completed: ${BACKUP_FILE}"
           echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
@@ -56,6 +119,24 @@ jobs:
           path: backups/
           retention-days: 30
           compression-level: 9
+
+      - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
+        if: env.RCLONE_CONF_EXISTS == 'true'
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"
+        run: |
+          echo "Installing Rclone..."
+          curl https://rclone.org/install.sh | sudo bash
+          
+          echo "Configuring Rclone..."
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+          
+          echo "🚀 Uploading backup to remote storage: $REMOTE_DEST"
+          rclone copy "backups/${BACKUP_FILE}" "$REMOTE_DEST" -v
+          
+          echo "✅ Upload complete!"
 
       - name: Commit backup to repository (optional)
         if: false  # Set to true if you want backups in git
