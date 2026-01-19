@@ -15,11 +15,9 @@ RUN apk add --no-cache git
 
 WORKDIR $BUILD_DIR
 
-# Copy Go mod files and main source
-COPY go.mod ./
-COPY main.go ./
-# Also copy local hook source code if expanding locally in Go
-COPY pb_hooks ./pb_hooks
+# Copy the pb_hooks directory contents to the build directory
+# This directory contains the actual Go application (main.go, go.mod, hooks)
+COPY pb_hooks/ .
 
 # Initialize dependencies
 # We use "tidy" to automatically resolve dependencies matching the imported packages
@@ -27,7 +25,7 @@ RUN go mod tidy
 
 # Build the binary
 # CGO_ENABLED=0 builds a statically linked binary (no libc dependency), ideal for Alpine
-RUN CGO_ENABLED=0 go build -o /pocketbase/pocketbase main.go
+RUN CGO_ENABLED=0 go build -o /pocketbase/pocketbase .
 
 
 # -----------------------------------------------------------------------------
