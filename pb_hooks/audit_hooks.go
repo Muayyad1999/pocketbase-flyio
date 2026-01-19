@@ -279,6 +279,11 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	// AUTH HOOKS
 	// ========================================
 	
+	/*
+	// ========================================
+	// AUTH HOOKS (Temporarily disabled for v0.25 compatibility update)
+	// ========================================
+	
 	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
 		return e.Next()
 	})
@@ -313,6 +318,7 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 		
 		return e.Next()
 	})
+	*/
 	
 	// Log failed auth attempts (using correct event type)
 	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
