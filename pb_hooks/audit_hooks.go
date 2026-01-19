@@ -104,9 +104,12 @@ func getUserInfo(e *core.RecordRequestEvent) (string, string) {
 		} else {
 			username = e.Auth.Id
 		}
-	} else if e.Admin != nil {
-		username = "admin: " + e.Admin.Email
-		userId = e.Admin.Id
+	} else {
+		// Admin access handling removed or different in v0.36
+		// For now, treat as guest if not a record auth
+		if e.Auth == nil {
+			username = "guest (or admin)"
+		}
 	}
 
 	return username, userId
