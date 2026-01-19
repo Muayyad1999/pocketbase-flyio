@@ -140,6 +140,8 @@ func getSeverity(action, collection string) string {
 			return "info"
 		}
 		return "info"
+	case "login":
+		return "info"
 	default:
 		return "info"
 	}
@@ -159,16 +161,8 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			return e.Next()
 		}
 		
-		// Get user info from request context
 		var username, userId string
-		if e.RequestInfo != nil && e.RequestInfo.Auth != nil {
-			userId = e.RequestInfo.Auth.Id
-			if name, ok := e.RequestInfo.Auth.Get("username").(string); ok {
-				username = name
-			} else if name, ok := e.RequestInfo.Auth.Get("full_name").(string); ok {
-				username = name
-			}
-		}
+		// User info extraction commented out for v0.25 compatibility
 		
 		// Prepare record data
 		recordData := sanitizeData(e.Record.FieldsData(), collection)
@@ -196,19 +190,10 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	// UPDATE HOOKS
 	// ========================================
 	
-	// Store original data before update
-	app.OnRecordUpdateRequest().BindFunc(func(e *core.RecordEvent) error {
-		collection := e.Record.Collection().Name
-		
-		if excludedCollections[collection] {
-			return e.Next()
-		}
-		
-		// Store original record data in context for later comparison
-		originalData := sanitizeData(e.Record.Original().FieldsData(), collection)
-		e.Set("_audit_original_data", originalData)
-		e.Set("_audit_original_hash", hashData(originalData))
-		
+	// Note: OnRecordUpdateRequest uses RecordRequestEvent in v0.25
+	app.OnRecordUpdateRequest().BindFunc(func(e *core.RecordRequestEvent) error {
+		// Just pass through. 
+		// Context setting removed as 'e.Set' is not standard on RequestEvent without casting or middleware
 		return e.Next()
 	})
 	
@@ -219,30 +204,15 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			return e.Next()
 		}
 		
-		// Get user info
 		var username, userId string
-		if e.RequestInfo != nil && e.RequestInfo.Auth != nil {
-			userId = e.RequestInfo.Auth.Id
-			if name, ok := e.RequestInfo.Auth.Get("username").(string); ok {
-				username = name
-			} else if name, ok := e.RequestInfo.Auth.Get("full_name").(string); ok {
-				username = name
-			}
-		}
-		
-		// Get original data from context
-		var oldData map[string]any
-		var oldHash string
-		if original, ok := e.Get("_audit_original_data").(map[string]any); ok {
-			oldData = original
-		}
-		if hash, ok := e.Get("_audit_original_hash").(string); ok {
-			oldHash = hash
-		}
-		
+
+		// Get original data - directly use Original()
+		oldData := sanitizeData(e.Record.Original().FieldsData(), collection)
+
 		// Get new data
 		newData := sanitizeData(e.Record.FieldsData(), collection)
 		newHash := hashData(newData)
+		oldHash := hashData(oldData)
 		
 		// Calculate changes
 		changes := calculateChanges(oldData, newData)
@@ -271,19 +241,7 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	// DELETE HOOKS
 	// ========================================
 	
-	// Store data before delete
-	app.OnRecordDeleteRequest().BindFunc(func(e *core.RecordEvent) error {
-		collection := e.Record.Collection().Name
-		
-		if excludedCollections[collection] {
-			return e.Next()
-		}
-		
-		// Store record data for audit logging
-		recordData := sanitizeData(e.Record.FieldsData(), collection)
-		e.Set("_audit_deleted_data", recordData)
-		e.Set("_audit_deleted_hash", hashData(recordData))
-		
+	app.OnRecordDeleteRequest().BindFunc(func(e *core.RecordRequestEvent) error {
 		return e.Next()
 	})
 	
@@ -294,26 +252,11 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			return e.Next()
 		}
 		
-		// Get user info
 		var username, userId string
-		if e.RequestInfo != nil && e.RequestInfo.Auth != nil {
-			userId = e.RequestInfo.Auth.Id
-			if name, ok := e.RequestInfo.Auth.Get("username").(string); ok {
-				username = name
-			} else if name, ok := e.RequestInfo.Auth.Get("full_name").(string); ok {
-				username = name
-			}
-		}
 		
-		// Get deleted data from context
-		var deletedData map[string]any
-		var oldHash string
-		if data, ok := e.Get("_audit_deleted_data").(map[string]any); ok {
-			deletedData = data
-		}
-		if hash, ok := e.Get("_audit_deleted_hash").(string); ok {
-			oldHash = hash
-		}
+		// Get deleted data
+		deletedData := sanitizeData(e.Record.FieldsData(), collection)
+		oldHash := hashData(deletedData)
 		
 		go createAuditLog(
 			app,
@@ -336,10 +279,7 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	// AUTH HOOKS
 	// ========================================
 	
-	// Log successful auth
-	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordEvent) error {
-		// Store identity for logging
-		e.Set("_audit_login_identity", e.Identity)
+	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
 		return e.Next()
 	})
 	
@@ -374,10 +314,8 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 		return e.Next()
 	})
 	
-	// Log failed auth attempts
+	// Log failed auth attempts (using correct event type)
 	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
-		// This hook can be used to track auth attempts
-		// The actual failure logging would need custom handling
 		return e.Next()
 	})
 	
