@@ -28,7 +28,6 @@ jobs:
       - name: Create backup
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          RCLONE_CONF_EXISTS: ${{ secrets.RCLONE_CONF != '' }}
         run: |
           echo "📦 Starting automated backup..."
           APP_NAME="al-salam-sys"
@@ -121,7 +120,7 @@ jobs:
           compression-level: 9
 
       - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
-        if: env.RCLONE_CONF_EXISTS == 'true'
+        if: ${{ secrets.RCLONE_CONF != '' }}
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"

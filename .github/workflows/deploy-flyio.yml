@@ -8,6 +8,8 @@ on:
       - 'Dockerfile'
       - 'fly.toml'
       - 'scripts/**'
+      - 'pb_hooks/**'
+      - 'pb_migrations/**'
       - '.github/workflows/deploy-flyio.yml'
   workflow_dispatch:
     # Allow manual deployment

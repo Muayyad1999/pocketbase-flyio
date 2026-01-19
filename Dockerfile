@@ -50,6 +50,8 @@ RUN mkdir -p $POCKETBASE_HOME  \
 
 COPY --from=build $BUILD_DIR $POCKETBASE_HOME
 COPY scripts $POCKETBASE_HOME/scripts
+COPY pb_hooks $POCKETBASE_HOME/pb_hooks
+COPY pb_migrations $POCKETBASE_HOME/pb_migrations
 
 # Fix Windows line endings (CRLF -> LF) and set permissions
 RUN sed -i 's/\r$//' $POCKETBASE_HOME/scripts/*.sh \
