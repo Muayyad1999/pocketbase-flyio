@@ -87,8 +87,34 @@ func calculateChanges(oldData, newData map[string]any) map[string]any {
 	return changes
 }
 
+// Get user info from the event
+// In v0.36, Auth record is available directly on RequestEvent
+func getUserInfo(e *core.RecordRequestEvent) (string, string) {
+	userId := ""
+	username := "guest"
+
+	if e.Auth != nil {
+		userId = e.Auth.Id
+		if name, ok := e.Auth.Get("username").(string); ok && name != "" {
+			username = name
+		} else if name, ok := e.Auth.Get("full_name").(string); ok && name != "" {
+			username = name
+		} else if email, ok := e.Auth.Get("email").(string); ok && email != "" {
+			username = email
+		} else {
+			username = e.Auth.Id
+		}
+	} else if e.Admin != nil {
+		username = "admin: " + e.Admin.Email
+		userId = e.Admin.Id
+	}
+
+	return username, userId
+}
+
 // createAuditLog creates an audit log entry
-func createAuditLog(app *pocketbase.PocketBase, action, collection, recordId, username, userId string, changes, metadata map[string]any, oldHash, newHash string, severity string) {
+// Updated for v0.36 App API
+func createAuditLog(app core.App, action, collection, recordId, username, userId string, changes, metadata map[string]any, oldHash, newHash string, severity string) {
 	auditCollection, err := app.FindCollectionByNameOrId("audit_logs")
 	if err != nil {
 		log.Printf("Audit: Failed to find audit_logs collection: %v", err)
@@ -125,22 +151,15 @@ func createAuditLog(app *pocketbase.PocketBase, action, collection, recordId, us
 	}
 }
 
-// getSeverity determines the severity level based on action and collection
+// getSeverity determines the severity level based on collection
 func getSeverity(action, collection string) string {
 	switch action {
 	case "delete":
 		return "warning"
-	case "create":
+	case "create", "update":
 		if sensitiveCollections[collection] {
 			return "info"
 		}
-		return "info"
-	case "update":
-		if sensitiveCollections[collection] {
-			return "info"
-		}
-		return "info"
-	case "login":
 		return "info"
 	default:
 		return "info"
@@ -149,29 +168,30 @@ func getSeverity(action, collection string) string {
 
 // RegisterAuditHooks registers all audit logging hooks
 func RegisterAuditHooks(app *pocketbase.PocketBase) {
-	log.Println("⚠️ Audit logging hooks temporarily disabled for v0.36 upgrade")
-	/*
+	
 	// ========================================
 	// CREATE HOOKS
 	// ========================================
-	app.OnRecordAfterCreateSuccess().BindFunc(func(e *core.RecordEvent) error {
-		collection := e.Record.Collection().Name
-		
-		// Skip excluded collections
-		if excludedCollections[collection] {
-			return e.Next()
+	app.OnRecordCreateRequest().BindFunc(func(e *core.RecordRequestEvent) error {
+		// execute the action first (create the record)
+		if err := e.Next(); err != nil {
+			return err
 		}
-		
-		var username, userId string
-		// User info extraction commented out for v0.25 compatibility
+
+		collection := e.Record.Collection().Name
+		if excludedCollections[collection] {
+			return nil
+		}
+
+		username, userId := getUserInfo(e)
 		
 		// Prepare record data
+		// e.Record contains the newly created record data after success
 		recordData := sanitizeData(e.Record.FieldsData(), collection)
 		newHash := hashData(recordData)
-		
-		// Create audit log
+
 		go createAuditLog(
-			app,
+			e.App,
 			"create",
 			collection,
 			e.Record.Id,
@@ -183,45 +203,48 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			newHash,
 			getSeverity("create", collection),
 		)
-		
-		return e.Next()
+
+		return nil
 	})
-	
+
 	// ========================================
 	// UPDATE HOOKS
 	// ========================================
-	
-	// Note: OnRecordUpdateRequest uses RecordRequestEvent in v0.25
 	app.OnRecordUpdateRequest().BindFunc(func(e *core.RecordRequestEvent) error {
-		// Just pass through. 
-		// Context setting removed as 'e.Set' is not standard on RequestEvent without casting or middleware
-		return e.Next()
-	})
-	
-	app.OnRecordAfterUpdateSuccess().BindFunc(func(e *core.RecordEvent) error {
 		collection := e.Record.Collection().Name
-		
 		if excludedCollections[collection] {
 			return e.Next()
 		}
+
+		// Store original data BEFORE update
+		// In v0.36, loaded record is in e.Record
+		// Verify if e.Record holds the OLD data at this point. 
+		// Yes, for update requests, e.Record is the record loaded from DB.
+		// The changes are in `e.Record` after `e.Next()` presumably applied them? 
+		// Actually, standard pattern: 
+		// e.Record is the record TO BE updated. 
+		// PocketBase v0.36 usually applies binding to e.Record.
+		// So we capture "Original" state here.
+		// Or better: Clone the record data before calling Next().
 		
-		var username, userId string
-
-		// Get original data - directly use Original()
 		oldData := sanitizeData(e.Record.Original().FieldsData(), collection)
+		oldHash := hashData(oldData)
 
-		// Get new data
+		// Execute update
+		if err := e.Next(); err != nil {
+			return err
+		}
+
+		// Now e.Record has the NEW data
+		username, userId := getUserInfo(e)
 		newData := sanitizeData(e.Record.FieldsData(), collection)
 		newHash := hashData(newData)
-		oldHash := hashData(oldData)
-		
-		// Calculate changes
+
 		changes := calculateChanges(oldData, newData)
-		
-		// Only log if there are actual changes
+
 		if len(changes) > 0 {
 			go createAuditLog(
-				app,
+				e.App,
 				"update",
 				collection,
 				e.Record.Id,
@@ -234,33 +257,32 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 				getSeverity("update", collection),
 			)
 		}
-		
-		return e.Next()
+
+		return nil
 	})
-	
+
 	// ========================================
 	// DELETE HOOKS
 	// ========================================
-	
 	app.OnRecordDeleteRequest().BindFunc(func(e *core.RecordRequestEvent) error {
-		return e.Next()
-	})
-	
-	app.OnRecordAfterDeleteSuccess().BindFunc(func(e *core.RecordEvent) error {
 		collection := e.Record.Collection().Name
-		
 		if excludedCollections[collection] {
 			return e.Next()
 		}
-		
-		var username, userId string
-		
-		// Get deleted data
+
+		// Capture data BEFORE delete
 		deletedData := sanitizeData(e.Record.FieldsData(), collection)
 		oldHash := hashData(deletedData)
-		
+		username, userId := getUserInfo(e)
+
+		// Execute delete
+		if err := e.Next(); err != nil {
+			return err
+		}
+
+		// Log after success
 		go createAuditLog(
-			app,
+			e.App,
 			"delete",
 			collection,
 			e.Record.Id,
@@ -272,37 +294,31 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			"",
 			getSeverity("delete", collection),
 		)
-		
-		return e.Next()
+
+		return nil
 	})
-	
+
 	// ========================================
 	// AUTH HOOKS
 	// ========================================
-	
-	/*
-	// ========================================
-	// AUTH HOOKS (Temporarily disabled for v0.25 compatibility update)
-	// ========================================
-	
 	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
-		return e.Next()
-	})
-	
-	app.OnRecordAfterAuthWithPasswordSuccess().BindFunc(func(e *core.RecordAuthWithPasswordEvent) error {
-		if e.Record == nil {
-			return e.Next()
+		// Execute auth
+		if err := e.Next(); err != nil {
+			return err
 		}
-		
-		username := ""
+
+		// Log success
+		if e.Record == nil {
+			return nil
+		}
+
+		username := "unknown"
 		if name, ok := e.Record.Get("username").(string); ok {
 			username = name
-		} else if name, ok := e.Record.Get("full_name").(string); ok {
-			username = name
 		}
-		
+
 		go createAuditLog(
-			app,
+			e.App,
 			"login",
 			e.Record.Collection().Name,
 			e.Record.Id,
@@ -311,18 +327,15 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			nil,
 			map[string]any{
 				"method": "password",
+				// "ip": e.RealIP(), // v0.36 method
 			},
 			"",
 			"",
 			"info",
 		)
-		
-		return e.Next()
+
+		return nil
 	})
-	*/
-	
-	// Log failed auth attempts (using correct event type)
-	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
-		return e.Next()
-	})
+
+	log.Println("✓ Audit logging hooks registered (v0.36 compatible)")
 }
