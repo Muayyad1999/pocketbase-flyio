@@ -120,11 +120,15 @@ jobs:
           compression-level: 9
 
       - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
-        if: "${{ secrets.RCLONE_CONF != '' }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"
         run: |
+          if [ -z "$RCLONE_CONF" ]; then
+            echo "⚠️  RCLONE_CONF secret is not set. Skipping offsite backup."
+            exit 0
+          fi
+          
           echo "Installing Rclone..."
           curl https://rclone.org/install.sh | sudo bash
           
@@ -133,7 +137,7 @@ jobs:
           echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
           
           echo "🚀 Uploading backup to remote storage: $REMOTE_DEST"
-          rclone copy "backups/${BACKUP_FILE}" "$REMOTE_DEST" -v
+          rclone copy "backups/$BACKUP_FILE" "$REMOTE_DEST" -v
           
           echo "✅ Upload complete!"
 
