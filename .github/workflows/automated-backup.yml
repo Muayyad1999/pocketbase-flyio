@@ -120,7 +120,7 @@ jobs:
           compression-level: 9
 
       - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
-        if: secrets.RCLONE_CONF != ''
+        if: "${{ secrets.RCLONE_CONF != '' }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"
@@ -148,11 +148,11 @@ jobs:
 
       - name: Backup summary
         run: |
-          BACKUP_SIZE=$(du -h backups/${{ env.BACKUP_FILE }} | cut -f1)
+          BACKUP_SIZE=$(du -h backups/$BACKUP_FILE | cut -f1)
           echo "## 📦 Backup Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- **File:** \`${{ env.BACKUP_FILE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **File:** \`$BACKUP_FILE\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Size:** ${BACKUP_SIZE}" >> $GITHUB_STEP_SUMMARY
           echo "- **Retention:** 30 days" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
