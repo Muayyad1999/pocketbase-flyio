@@ -120,7 +120,7 @@ jobs:
           compression-level: 9
 
       - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
-        if: ${{ secrets.RCLONE_CONF != '' }}
+        if: secrets.RCLONE_CONF != ''
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"

@@ -2,29 +2,38 @@ ARG POCKETBASE_VERSION=0.36.0
 ARG ALPINE_VERSION=3.23.2
 ARG BUILD_DIR=/pb_build
 ARG BUILD_TAG
-FROM alpine:$ALPINE_VERSION AS base
 
-RUN apk add --no-cache ca-certificates curl
-
-
-FROM base AS build
-
-RUN apk add --no-cache unzip
+# -----------------------------------------------------------------------------
+# Stage 1: Build Go Binary
+# -----------------------------------------------------------------------------
+FROM golang:1.24-alpine AS build
 
 ARG POCKETBASE_VERSION
 ARG BUILD_DIR
-ARG TARGETPLATFORM
 
-RUN case ${TARGETPLATFORM} in \
-         "linux/amd64")  PACKAGE_PLATFORM=linux_amd64  ;; \
-         "linux/arm64")  PACKAGE_PLATFORM=linux_arm64  ;; \
-         "linux/arm/v7") PACKAGE_PLATFORM=linux_armv7  ;; \
-    esac \
-    && curl -fsSL -o /tmp/pocketbase.zip https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/pocketbase_${POCKETBASE_VERSION}_${PACKAGE_PLATFORM}.zip \
-    && unzip /tmp/pocketbase.zip -d $BUILD_DIR/
+RUN apk add --no-cache git
+
+WORKDIR $BUILD_DIR
+
+# Copy Go mod files and main source
+COPY go.mod ./
+COPY main.go ./
+# Also copy local hook source code if expanding locally in Go
+COPY pb_hooks ./pb_hooks
+
+# Initialize dependencies
+# We use "tidy" to automatically resolve dependencies matching the imported packages
+RUN go mod tidy
+
+# Build the binary
+# CGO_ENABLED=0 builds a statically linked binary (no libc dependency), ideal for Alpine
+RUN CGO_ENABLED=0 go build -o /pocketbase/pocketbase main.go
 
 
-FROM base AS final
+# -----------------------------------------------------------------------------
+# Stage 2: Final Image
+# -----------------------------------------------------------------------------
+FROM alpine:$ALPINE_VERSION AS final
 
 ARG uid=1001
 ARG gid=1001
@@ -33,9 +42,7 @@ ARG group=pocketbase
 ARG POCKETBASE_WORKDIR=/pocketbase
 ARG POCKETBASE_PORT_NUMBER=8090
 
-ARG POCKETBASE_VERSION
-ARG BUILD_DIR
-
+# ... (args from previous stage are not automatic in new stage, redefining envs)
 ENV POCKETBASE_VERSION=$POCKETBASE_VERSION \
     POCKETBASE_PORT_NUMBER=$POCKETBASE_PORT_NUMBER \
     POCKETBASE_WORKDIR=$POCKETBASE_WORKDIR \
@@ -43,12 +50,13 @@ ENV POCKETBASE_VERSION=$POCKETBASE_VERSION \
 
 EXPOSE $POCKETBASE_PORT_NUMBER
 
-RUN mkdir -p $POCKETBASE_HOME  \
+RUN apk add --no-cache ca-certificates unzip \
+    && mkdir -p $POCKETBASE_HOME  \
     && mkdir -p -m 777 "$POCKETBASE_WORKDIR" \
     && addgroup -g ${gid} ${group} \
     && adduser -u ${uid} -G ${group} -s /bin/sh -D ${user}
 
-COPY --from=build $BUILD_DIR $POCKETBASE_HOME
+COPY --from=build /pocketbase/pocketbase $POCKETBASE_HOME/pocketbase
 COPY scripts $POCKETBASE_HOME/scripts
 COPY pb_hooks $POCKETBASE_HOME/pb_hooks
 COPY pb_migrations $POCKETBASE_HOME/pb_migrations
