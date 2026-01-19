@@ -149,7 +149,8 @@ func getSeverity(action, collection string) string {
 
 // RegisterAuditHooks registers all audit logging hooks
 func RegisterAuditHooks(app *pocketbase.PocketBase) {
-	
+	log.Println("⚠️ Audit logging hooks temporarily disabled for v0.36 upgrade")
+	/*
 	// ========================================
 	// CREATE HOOKS
 	// ========================================
@@ -324,6 +325,5 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
 		return e.Next()
 	})
-	
-	log.Println("✓ Audit logging hooks registered")
+	*/
 }
