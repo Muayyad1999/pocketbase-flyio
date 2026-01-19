@@ -325,5 +325,4 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
 		return e.Next()
 	})
-	*/
 }
