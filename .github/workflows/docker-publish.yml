@@ -1,0 +1,108 @@
+name: Build and Push to Docker Hub
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'Dockerfile'
+      - 'pb_hooks/**'
+      - 'scripts/**'
+      - '.github/workflows/docker-publish.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Custom image tag (optional, defaults to PocketBase version)'
+        required: false
+        type: string
+
+env:
+  DOCKER_HUB_REPO: muayyad1999/pocketbase
+  DOCKERFILE_PATH: Dockerfile
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get PocketBase version from Dockerfile
+        id: version
+        run: |
+          version=$(grep "ARG POCKETBASE_VERSION=" "$DOCKERFILE_PATH" | cut -d '=' -f2 | tr -d '[:space:]')
+          echo "pocketbase_version=$version" >> $GITHUB_OUTPUT
+          echo "📦 PocketBase version: $version"
+
+      - name: Determine image tags
+        id: tags
+        run: |
+          version="${{ steps.version.outputs.pocketbase_version }}"
+          custom_tag="${{ inputs.tag }}"
+          
+          # Build tag list
+          tags="${{ env.DOCKER_HUB_REPO }}:latest"
+          tags="$tags,${{ env.DOCKER_HUB_REPO }}:$version"
+          tags="$tags,${{ env.DOCKER_HUB_REPO }}:$(echo $version | cut -d. -f1,2)"  # Major.Minor (e.g., 0.36)
+          
+          if [ -n "$custom_tag" ]; then
+            tags="$tags,${{ env.DOCKER_HUB_REPO }}:$custom_tag"
+          fi
+          
+          echo "tags=$tags" >> $GITHUB_OUTPUT
+          echo "🏷️ Tags: $tags"
+
+      - name: Set up QEMU (for multi-platform builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            POCKETBASE_VERSION=${{ steps.version.outputs.pocketbase_version }}
+            BUILD_TAG=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create job summary
+        run: |
+          version="${{ steps.version.outputs.pocketbase_version }}"
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🐳 Docker Image Published
+          
+          **Repository:** \`${{ env.DOCKER_HUB_REPO }}\`
+          
+          **Tags:**
+          - \`${{ env.DOCKER_HUB_REPO }}:latest\`
+          - \`${{ env.DOCKER_HUB_REPO }}:$version\`
+          - \`${{ env.DOCKER_HUB_REPO }}:$(echo $version | cut -d. -f1,2)\`
+          
+          **Platforms:** linux/amd64, linux/arm64
+          
+          **Commit:** \`${{ github.sha }}\`
+          
+          ### Usage
+          \`\`\`bash
+          docker pull ${{ env.DOCKER_HUB_REPO }}:latest
+          \`\`\`
+          
+          ### Features
+          - ✅ Custom Go hooks support (audit logging)
+          - ✅ PocketBase v$version
+          - ✅ Multi-architecture (amd64/arm64)
+          - ✅ Fly.io compatible
+          EOF
