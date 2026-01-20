@@ -18,7 +18,7 @@ func main() {
 
 	// Serve static files from pb_public directory
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
+		e.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
 		return e.Next()
 	})
 
