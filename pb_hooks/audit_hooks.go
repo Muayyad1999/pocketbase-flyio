@@ -24,11 +24,11 @@ var excludedCollections = map[string]bool{
 
 // Collections that require special handling
 var sensitiveCollections = map[string]bool{
-	"users":            true,
-	"employees":        true,
-	"payroll_entries":  true,
-	"receipts":         true,
-	"salary_payments":  true,
+	"users":           true,
+	"employees":       true,
+	"payroll_entries": true,
+	"receipts":        true,
+	"salary_payments": true,
 }
 
 // hashData creates a SHA256 hash of the data for integrity verification
@@ -42,16 +42,16 @@ func hashData(data map[string]any) string {
 }
 
 // sanitizeData removes sensitive fields from data before logging
-func sanitizeData(data map[string]any, collection string) map[string]any {
+func sanitizeData(data map[string]any) map[string]any {
 	sanitized := make(map[string]any)
-	
+
 	// Fields to always exclude
 	sensitiveFields := map[string]bool{
 		"password":     true,
 		"tokenKey":     true,
 		"passwordHash": true,
 	}
-	
+
 	for key, value := range data {
 		if sensitiveFields[key] {
 			sanitized[key] = "[REDACTED]"
@@ -59,14 +59,14 @@ func sanitizeData(data map[string]any, collection string) map[string]any {
 			sanitized[key] = value
 		}
 	}
-	
+
 	return sanitized
 }
 
 // calculateChanges computes the difference between old and new data
 func calculateChanges(oldData, newData map[string]any) map[string]any {
 	changes := make(map[string]any)
-	
+
 	// Check for modified and new fields
 	for key, newVal := range newData {
 		oldVal, exists := oldData[key]
@@ -76,14 +76,14 @@ func calculateChanges(oldData, newData map[string]any) map[string]any {
 			changes[key] = map[string]any{"old": oldVal, "new": newVal}
 		}
 	}
-	
+
 	// Check for deleted fields
 	for key, oldVal := range oldData {
 		if _, exists := newData[key]; !exists {
 			changes[key] = map[string]any{"old": oldVal, "new": nil}
 		}
 	}
-	
+
 	return changes
 }
 
@@ -123,7 +123,7 @@ func createAuditLog(app core.App, action, collection, recordId, username, userId
 		log.Printf("Audit: Failed to find audit_logs collection: %v", err)
 		return
 	}
-	
+
 	record := core.NewRecord(auditCollection)
 	record.Set("action", action)
 	record.Set("collection", collection)
@@ -132,23 +132,23 @@ func createAuditLog(app core.App, action, collection, recordId, username, userId
 	record.Set("user_id", userId)
 	record.Set("timestamp", time.Now().UTC())
 	record.Set("severity", severity)
-	
-	if changes != nil && len(changes) > 0 {
+
+	if len(changes) > 0 {
 		record.Set("changes", changes)
 	}
-	
-	if metadata != nil && len(metadata) > 0 {
+
+	if len(metadata) > 0 {
 		record.Set("metadata", metadata)
 	}
-	
+
 	if oldHash != "" {
 		record.Set("old_data_hash", oldHash)
 	}
-	
+
 	if newHash != "" {
 		record.Set("new_data_hash", newHash)
 	}
-	
+
 	if err := app.Save(record); err != nil {
 		log.Printf("Audit: Failed to create audit log: %v", err)
 	}
@@ -171,7 +171,7 @@ func getSeverity(action, collection string) string {
 
 // RegisterAuditHooks registers all audit logging hooks
 func RegisterAuditHooks(app *pocketbase.PocketBase) {
-	
+
 	// ========================================
 	// CREATE HOOKS
 	// ========================================
@@ -187,10 +187,10 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 		}
 
 		username, userId := getUserInfo(e)
-		
+
 		// Prepare record data
 		// e.Record contains the newly created record data after success
-		recordData := sanitizeData(e.Record.FieldsData(), collection)
+		recordData := sanitizeData(e.Record.FieldsData())
 		newHash := hashData(recordData)
 
 		go createAuditLog(
@@ -221,16 +221,16 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 
 		// Store original data BEFORE update
 		// In v0.36, loaded record is in e.Record
-		// Verify if e.Record holds the OLD data at this point. 
+		// Verify if e.Record holds the OLD data at this point.
 		// Yes, for update requests, e.Record is the record loaded from DB.
-		// The changes are in `e.Record` after `e.Next()` presumably applied them? 
-		// Actually, standard pattern: 
-		// e.Record is the record TO BE updated. 
+		// The changes are in `e.Record` after `e.Next()` presumably applied them?
+		// Actually, standard pattern:
+		// e.Record is the record TO BE updated.
 		// PocketBase v0.36 usually applies binding to e.Record.
 		// So we capture "Original" state here.
 		// Or better: Clone the record data before calling Next().
-		
-		oldData := sanitizeData(e.Record.Original().FieldsData(), collection)
+
+		oldData := sanitizeData(e.Record.Original().FieldsData())
 		oldHash := hashData(oldData)
 
 		// Execute update
@@ -240,7 +240,7 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 
 		// Now e.Record has the NEW data
 		username, userId := getUserInfo(e)
-		newData := sanitizeData(e.Record.FieldsData(), collection)
+		newData := sanitizeData(e.Record.FieldsData())
 		newHash := hashData(newData)
 
 		changes := calculateChanges(oldData, newData)
@@ -274,7 +274,7 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 		}
 
 		// Capture data BEFORE delete
-		deletedData := sanitizeData(e.Record.FieldsData(), collection)
+		deletedData := sanitizeData(e.Record.FieldsData())
 		oldHash := hashData(deletedData)
 		username, userId := getUserInfo(e)
 
