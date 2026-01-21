@@ -39,6 +39,7 @@ ARG user=pocketbase
 ARG group=pocketbase
 ARG POCKETBASE_WORKDIR=/pocketbase
 ARG POCKETBASE_PORT_NUMBER=8090
+ARG POCKETBASE_VERSION
 
 # ... (args from previous stage are not automatic in new stage, redefining envs)
 ENV POCKETBASE_VERSION=$POCKETBASE_VERSION \
