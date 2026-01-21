@@ -14,6 +14,10 @@ on:
   workflow_dispatch:
     # Allow manual deployment
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Deploy to Fly.io
