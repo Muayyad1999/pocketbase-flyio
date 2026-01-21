@@ -305,8 +305,29 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 	// AUTH HOOKS
 	// ========================================
 	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
+		// Capture identity before auth attempt
+		identity := e.Identity
+
 		// Execute auth
 		if err := e.Next(); err != nil {
+			// Log failed login attempt
+			go createAuditLog(
+				e.App,
+				"login_failed",
+				"users",
+				"",
+				identity,
+				"",
+				nil,
+				map[string]any{
+					"method":   "password",
+					"identity": identity,
+					"error":    err.Error(),
+				},
+				"",
+				"",
+				"warning",
+			)
 			return err
 		}
 
@@ -330,7 +351,6 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			nil,
 			map[string]any{
 				"method": "password",
-				// "ip": e.RealIP(), // v0.36 method
 			},
 			"",
 			"",
