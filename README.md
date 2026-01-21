@@ -106,7 +106,7 @@ Access at: `http://localhost:8090`
 
 When you start the PocketBase&trade; image, you can adjust the configuration of the instance by passing one or more environment variables either on the docker-compose file or on the `docker run` command line. If you want to add a new environment variable:
 
-- For docker-compose add the variable name and value under the application section in the [`docker-compose.yml`](https://github.com/adrianmusante/docker-pocketbase/blob/main/docker-compose.example.yml) file present in this repository:
+- For docker-compose add the variable name and value under the application section in the [`docker-compose.yml`](https://github.com/Muayyad1999/pocketbase-flyio/blob/master/docker-compose.example.yml) file present in this repository:
 
     ```yaml
     pocketbase:
@@ -123,7 +123,7 @@ When you start the PocketBase&trade; image, you can adjust the configuration of 
       --env USER_DEFINED_KEY=custom_value \
       --network pocketbase_network \
       --volume /path/to/pocketbase-persistence:/pocketbase \
-      adrianmusante/pocketbase:latest
+      muayyad1999/pocketbase:latest
     ```
 
 Available environment variables:

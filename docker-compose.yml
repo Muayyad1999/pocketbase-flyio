@@ -1,7 +1,7 @@
 # This docker-compose is only for local
 services:
   pocketbase:
-    image: adrianmusante/pocketbase:0.0.0
+    image: muayyad1999/pocketbase:latest
     container_name: pocketbase
     build:
       context: pocketbase

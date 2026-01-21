@@ -19,10 +19,10 @@ run-detach:
 	make down; docker compose up --build -V --force-recreate -d
 
 build-multi:
-	docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -t adrianmusante/pocketbase:0.0.0 pocketbase
+	docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -t muayyad1999/pocketbase:latest .
 
 build-local:
-	docker buildx build --load -t adrianmusante/pocketbase:0.0.0 pocketbase
+	docker buildx build --load -t muayyad1999/pocketbase:latest .
 
 logs:
 	docker compose logs -f
