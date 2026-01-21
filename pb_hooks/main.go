@@ -28,6 +28,36 @@ func main() {
 		Automigrate: true,
 	})
 
+	// Add Fly-Client-IP to trusted headers to fix IP spoofing warning
+	app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
+		settings := app.Settings()
+		
+		// Check if Fly-Client-IP is already in the trusted headers
+		hasFlyHeader := false
+		for _, h := range settings.TrustedProxy.Headers {
+			if h == "Fly-Client-IP" {
+				hasFlyHeader = true
+				break
+			}
+		}
+
+		// If not present, add it and save
+		if !hasFlyHeader {
+			log.Println("Configuring TrustedProxy headers for Fly.io...")
+			settings.TrustedProxy.Headers = append(settings.TrustedProxy.Headers, "Fly-Client-IP")
+			
+			// Also ensure UseLeftmostIP is false implies we trust the specific header content provided by Fly?
+			// Default is usually fine.
+			
+			if err := app.Save(settings); err != nil {
+				log.Printf("Warning: Failed to save trusted proxy settings: %v", err)
+				// Don't block startup, just warn
+			}
+		}
+		
+		return e.Next()
+	})
+
 	// Register audit logging hooks
 	RegisterAuditHooks(app)
 
