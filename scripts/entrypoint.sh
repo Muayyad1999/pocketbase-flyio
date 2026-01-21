@@ -26,8 +26,6 @@ if is_debug_enabled; then
 fi
 
 set --  --dir "$POCKETBASE_DATA_DIR" \
-        --hooksDir "$POCKETBASE_HOOK_DIR" \
-        --migrationsDir "$POCKETBASE_MIGRATION_DIR" \
         $POCKETBASE_OPTS "$@"
 
 debug "ARGUMENTS: $*"
