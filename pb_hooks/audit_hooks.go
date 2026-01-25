@@ -186,6 +186,11 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 			return nil
 		}
 
+		// Skip audit logging for payroll_entries creation (too noisy, keeping updates only)
+		if collection == "payroll_entries" {
+			return nil
+		}
+
 		username, userId := getUserInfo(e)
 
 		// Prepare record data
