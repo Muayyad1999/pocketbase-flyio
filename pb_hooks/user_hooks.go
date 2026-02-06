@@ -33,6 +33,15 @@ func RegisterUserHooks(app *pocketbase.PocketBase) {
 			}
 
 			if !isAuthorized {
+				if e.Auth != nil {
+					log.Printf("Auth Fail: ID=%s, Collection=%s, Role=%s, IsSuperuser=%v",
+						e.Auth.Id,
+						e.Auth.Collection().Name,
+						e.Auth.GetString("role"),
+						e.Auth.IsSuperuser())
+				} else {
+					log.Println("Auth Fail: e.Auth is nil")
+				}
 				return apis.NewForbiddenError("Only admins can perform this action.", nil)
 			}
 
