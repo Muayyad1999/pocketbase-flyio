@@ -141,6 +141,12 @@ jobs:
           gh label create "automation" --description "Automated changes" --color "00ff00" 2>/dev/null || true
           echo "✅ Labels created or already exist"
 
+      - name: Setup Go
+        if: steps.pr.outputs.exists == 'false' && steps.check.outputs.up_to_date == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
       - name: Create update branch and pull request
         if: steps.pr.outputs.exists == 'false' && steps.check.outputs.up_to_date == 'false'
         env:
@@ -159,6 +165,15 @@ jobs:
           # Update Dockerfile versions
           sed -i "s|ARG $DOCKERFILE_VERSION_KEY=.*|ARG $DOCKERFILE_VERSION_KEY=$version|" "$DOCKERFILE_PATH"
           sed -i "s|ARG $DOCKERFILE_OS_VERSION_KEY=.*|ARG $DOCKERFILE_OS_VERSION_KEY=$os_version|" "$DOCKERFILE_PATH"
+
+          # Update Go dependencies if pb_hooks exists
+          if [ -d "pb_hooks" ]; then
+            echo "⬆️ Updating Go module dependencies..."
+            cd pb_hooks
+            go get github.com/pocketbase/pocketbase@v$version
+            go mod tidy
+            cd ..
+          fi
 
           # Update CHANGELOG if exists
           if [ -f "CHANGELOG.md" ]; then
