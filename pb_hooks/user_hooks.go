@@ -1,8 +1,8 @@
 package main
 
-import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
@@ -25,8 +25,8 @@ func RegisterUserHooks(app *pocketbase.PocketBase) {
 				} else if e.Auth.Collection().Name == "users" {
 					// Check for regular user with 'admin' role
 					role := e.Auth.GetString("role")
-					// Allow 'admin' or 'manager' to reset passwords
-					if role == "admin" || role == "manager" {
+					// Allow 'admin' or 'manager' to reset passwords (case-insensitive)
+					if strings.EqualFold(role, "admin") || strings.EqualFold(role, "manager") {
 						isAuthorized = true
 					}
 				}
