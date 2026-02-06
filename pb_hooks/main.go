@@ -60,6 +60,7 @@ func main() {
 
 	// Register audit logging hooks
 	RegisterAuditHooks(app)
+	RegisterUserHooks(app)
 
 	// Serve static files from pb_public directory
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
