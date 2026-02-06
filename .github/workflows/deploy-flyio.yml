@@ -41,6 +41,14 @@ jobs:
           flyctl deploy --remote-only --ha=false
           echo "✅ Deployment completed!"
 
+      - name: Enforce Memory Limit (Cost Saving)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "💰 Enforcing 256MB RAM limit to save costs..."
+          flyctl scale memory 256
+          echo "✅ Memory limit enforced!"
+
       - name: Get deployment status
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
