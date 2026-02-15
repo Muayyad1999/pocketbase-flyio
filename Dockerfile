@@ -1,12 +1,13 @@
 ARG POCKETBASE_VERSION=0.36.3
 ARG ALPINE_VERSION=3.21
+ARG GO_VERSION=1.25
 ARG BUILD_DIR=/pb_build
 ARG BUILD_TAG
 
 # -----------------------------------------------------------------------------
 # Stage 1: Build Go Binary
 # -----------------------------------------------------------------------------
-FROM golang:1.25.6-alpine AS build
+FROM golang:${GO_VERSION}-alpine AS build
 
 ARG POCKETBASE_VERSION
 ARG BUILD_DIR

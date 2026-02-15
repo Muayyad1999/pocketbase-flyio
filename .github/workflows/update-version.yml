@@ -166,6 +166,15 @@ jobs:
           sed -i "s|ARG $DOCKERFILE_VERSION_KEY=.*|ARG $DOCKERFILE_VERSION_KEY=$version|" "$DOCKERFILE_PATH"
           sed -i "s|ARG $DOCKERFILE_OS_VERSION_KEY=.*|ARG $DOCKERFILE_OS_VERSION_KEY=$os_version|" "$DOCKERFILE_PATH"
 
+          # Update Go version in Dockerfile from go.mod
+          if [ -f "go.mod" ]; then
+            go_version=$(grep "^go " go.mod | awk '{print $2}')
+            if [ -n "$go_version" ]; then
+              echo "✅ Found Go version: $go_version"
+              sed -i "s|ARG GO_VERSION=.*|ARG GO_VERSION=$go_version|" "$DOCKERFILE_PATH"
+            fi
+          fi
+
           # Update Go dependencies if pb_hooks exists
           if [ -d "pb_hooks" ]; then
             echo "⬆️ Updating Go module dependencies in pb_hooks..."
