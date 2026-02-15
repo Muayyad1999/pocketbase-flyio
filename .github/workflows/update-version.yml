@@ -168,11 +168,18 @@ jobs:
 
           # Update Go dependencies if pb_hooks exists
           if [ -d "pb_hooks" ]; then
-            echo "⬆️ Updating Go module dependencies..."
+            echo "⬆️ Updating Go module dependencies in pb_hooks..."
             cd pb_hooks
             go get github.com/pocketbase/pocketbase@v$version
             go mod tidy
             cd ..
+          fi
+
+          # Update Go dependencies in root if go.mod exists
+          if [ -f "go.mod" ]; then
+            echo "⬆️ Updating root Go module dependencies..."
+            go get github.com/pocketbase/pocketbase@v$version
+            go mod tidy
           fi
 
           # Update CHANGELOG if exists
