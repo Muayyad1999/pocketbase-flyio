@@ -1,4 +1,9 @@
 # Changelog
+## [v0.37.0] - 2026-04-19
+
+- Updated PocketBase to v0.37.0
+- Updated Alpine Linux to v3.23.4
+
 ## [v0.36.9] - 2026-04-16
 
 - Updated PocketBase to v0.36.9
