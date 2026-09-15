@@ -1,76 +1,28 @@
-ARG POCKETBASE_VERSION=0.40.4
-ARG ALPINE_VERSION=3.24.1
-ARG GO_VERSION=1.27
-ARG BUILD_DIR=/pb_build
-ARG BUILD_TAG
+# syntax=docker/dockerfile:1
+FROM alpine:3.24.1 AS downloader
+ARG TARGETARCH=amd64
+ARG TARGETVARIANT
+ARG VERSION=0.40.4
+WORKDIR /download
+RUN set -eux; \
+    archive="pocketbase_${VERSION}_linux_${TARGETARCH}${TARGETVARIANT}.zip"; \
+    wget -q "https://github.com/pocketbase/pocketbase/releases/download/v${VERSION}/${archive}"; \
+    wget -q "https://github.com/pocketbase/pocketbase/releases/download/v${VERSION}/checksums.txt"; \
+    grep "  ${archive}$" checksums.txt > selected.sha256; \
+    sha256sum -c selected.sha256; \
+    unzip "$archive" pocketbase; \
+    chmod +x pocketbase
+FROM alpine:3.24.1
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=downloader /download/pocketbase /usr/local/bin/pocketbase
 
-# -----------------------------------------------------------------------------
-# Stage 1: Build Go Binary
-# -----------------------------------------------------------------------------
-FROM golang:${GO_VERSION}-alpine AS build
-
-ARG POCKETBASE_VERSION
-ARG BUILD_DIR
-
-RUN apk add --no-cache git
-
-WORKDIR $BUILD_DIR
-
-# Copy the pb_hooks directory contents to the build directory
-# This directory contains the actual Go application (main.go, go.mod, hooks)
-COPY pb_hooks/ .
-
-# Initialize dependencies
-# We use "tidy" to automatically resolve dependencies matching the imported packages
-RUN go mod tidy
-
-# Build the binary
-# CGO_ENABLED=0 builds a statically linked binary (no libc dependency), ideal for Alpine
-RUN CGO_ENABLED=0 go build -o /pocketbase/pocketbase .
-
-
-# -----------------------------------------------------------------------------
-# Stage 2: Final Image
-# -----------------------------------------------------------------------------
-FROM alpine:$ALPINE_VERSION AS final
-
-ARG uid=1001
-ARG gid=1001
-ARG user=pocketbase
-ARG group=pocketbase
-ARG POCKETBASE_WORKDIR=/pocketbase
-ARG POCKETBASE_PORT_NUMBER=8090
-ARG POCKETBASE_VERSION
-
-# ... (args from previous stage are not automatic in new stage, redefining envs)
-ENV POCKETBASE_VERSION=$POCKETBASE_VERSION \
-    POCKETBASE_PORT_NUMBER=$POCKETBASE_PORT_NUMBER \
-    POCKETBASE_WORKDIR=$POCKETBASE_WORKDIR \
-    POCKETBASE_HOME=/opt/pocketbase
-
-EXPOSE $POCKETBASE_PORT_NUMBER
-
-RUN apk add --no-cache ca-certificates unzip \
-    && mkdir -p $POCKETBASE_HOME  \
-    && mkdir -p -m 777 "$POCKETBASE_WORKDIR" \
-    && addgroup -g ${gid} ${group} \
-    && adduser -u ${uid} -G ${group} -s /bin/sh -D ${user}
-
-COPY --from=build /pocketbase/pocketbase $POCKETBASE_HOME/pocketbase
-COPY scripts $POCKETBASE_HOME/scripts
-COPY pb_hooks $POCKETBASE_HOME/pb_hooks
-COPY pb_migrations $POCKETBASE_HOME/pb_migrations
-
-# Fix Windows line endings (CRLF -> LF) and set permissions
-RUN sed -i 's/\r$//' $POCKETBASE_HOME/scripts/*.sh \
-    && chmod -R 755 $POCKETBASE_HOME \
-    && ln -s $POCKETBASE_HOME/pocketbase /usr/local/bin/pocketbase
-
-# Note: Running as root for fly.io volume compatibility
-# fly.io mounts volumes as root, and we need write access
-WORKDIR "$POCKETBASE_WORKDIR"
-
-ARG BUILD_TAG
-ENV BUILD_TAG="$BUILD_TAG"
-
+ENV POCKETBASE_HOME=/opt/pocketbase POCKETBASE_WORKDIR=/pocketbase POCKETBASE_PORT_NUMBER=8090
+COPY scripts/entrypoint.sh /opt/pocketbase/scripts/entrypoint.sh
+COPY pb_hooks/ /opt/pocketbase/pb_hooks/
+COPY pb_migrations/ /opt/pocketbase/pb_migrations/
+RUN sed -i 's/\r$//' /opt/pocketbase/scripts/entrypoint.sh \
+    && chmod +x /opt/pocketbase/scripts/entrypoint.sh \
+    && mkdir -p /pocketbase/data /pocketbase/public
+WORKDIR /pocketbase
+EXPOSE 8090
 ENTRYPOINT ["/opt/pocketbase/scripts/entrypoint.sh"]

@@ -1,37 +1,19 @@
-# Git
 .git
-.gitignore
-
-# Data and volumes
-pb_data/
-data/
-volumes/
-*.db
-*.db-shm
-*.db-wal
-
-# Environment files
+.github
 .env
 .env.*
-
-# Docker files
-docker-compose.yml
-docker-compose.*.yml
-
-# Documentation
-README.md
-
-# IDE
-.vscode/
-.idea/
-
-# Logs
-*.log
-logs/
-
-# Fly.io
-.fly/
-
-# OS
-.DS_Store
-Thumbs.db
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.zip
+**/*.tar.gz
+pb_data
+data
+_local
+backups
+logs
+**/*.log
+# Old Go source is not part of the official PocketBase binary image.
+**/*.go
+**/go.mod
+**/go.sum

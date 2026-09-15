@@ -1,119 +1,43 @@
-name: Test Pull Request
-
+name: Container CI
 on:
+  push:
+    branches: [master, main]
   pull_request:
-    branches:
-      - master
-    paths:
-      - 'Dockerfile'
-      - 'scripts/**'
-      - 'fly.toml'
-      - '.github/workflows/**'
-
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
 jobs:
-  test-build:
-    name: Test Docker Build
+  container:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4.3.0
+      - uses: docker/build-push-action@v7.3.0
         with:
           context: .
+          load: true
           push: false
           tags: pocketbase:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Test Docker image
+      - name: Check scripts and CLI entrypoint
         run: |
-          docker run --rm pocketbase:test pocketbase --version
-
-      - name: Validate fly.toml
+          shellcheck scripts/entrypoint.sh
+          docker run --rm pocketbase:test --version
+          docker run --rm pocketbase:test superuser --help
+      - name: Verify migration, startup and API
         run: |
-          if [ -f fly.toml ]; then
-            echo "✅ fly.toml exists"
-            # Basic validation
-            grep -q "app = " fly.toml && echo "✅ App name configured"
-            grep -q "internal_port = 8090" fly.toml && echo "✅ Port configured"
-            grep -q "destination = \"/pocketbase/data\"" fly.toml && echo "✅ Volume mount configured"
-          else
-            echo "❌ fly.toml not found"
-            exit 1
-          fi
-
-      - name: Check scripts
-        run: |
-          echo "Checking entrypoint script..."
-          if [ -f scripts/entrypoint.sh ]; then
-            echo "✅ entrypoint.sh exists"
-            # Check if executable
-            if [ -x scripts/entrypoint.sh ]; then
-              echo "✅ entrypoint.sh is executable"
-            else
-              echo "⚠️  entrypoint.sh not executable (will be fixed in Dockerfile)"
-            fi
-          else
-            echo "❌ entrypoint.sh not found"
-            exit 1
-          fi
-
-  shellcheck:
-    name: Lint Shell Scripts
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
-        with:
-          scandir: './scripts'
-          severity: warning
-
-  summary:
-    name: PR Summary
-    runs-on: ubuntu-latest
-    needs: [test-build, shellcheck]
-    if: always()
-
-    steps:
-      - name: Check results
-        run: |
-          if [ "${{ needs.test-build.result }}" == "success" ] && [ "${{ needs.shellcheck.result }}" == "success" ]; then
-            echo "✅ All checks passed! Ready to merge."
-          else
-            echo "❌ Some checks failed. Please review."
-            exit 1
-          fi
-
-      - name: Comment on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `
-            ## 🧪 Test Results
-
-            - ${{ needs.test-build.result == 'success' && '✅' || '❌' }} Docker Build
-            - ${{ needs.shellcheck.result == 'success' && '✅' || '❌' }} Shell Script Linting
-
-            ${{ needs.test-build.result == 'success' && needs.shellcheck.result == 'success' && '**Status:** All checks passed! ✨' || '**Status:** Some checks failed. Please review the logs.' }}
-
-            ---
-            🤖 Automated test report
-            `;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            });
+          docker run -d --name pocketbase-smoke -p 127.0.0.1:18090:8090 pocketbase:test
+          curl --fail --retry 12 --retry-all-errors --retry-delay 3 --max-time 10 http://127.0.0.1:18090/api/health
+          curl --fail --silent http://127.0.0.1:18090/api/accounting/status | python3 -c 'import json,sys; assert json.load(sys.stdin).get("schema_version", 0) >= 3'
+          curl --fail --silent http://127.0.0.1:18090/api/collections/employees/records | python3 -c 'import sys,json; assert json.load(sys.stdin)["items"] == []'
+      - name: Container diagnostics
+        if: failure()
+        run: docker logs pocketbase-smoke
+      - name: Cleanup ephemeral container
+        if: always()
+        run: docker rm -f pocketbase-smoke || true

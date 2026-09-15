@@ -1,163 +1,24 @@
-name: Auto Update PocketBase Version
-
+name: Check PocketBase Release
 on:
   schedule:
-    # Run daily at 8 AM UTC
-    - cron: '0 8 * * *'
+    - cron: '0 8 * * 1'
   workflow_dispatch:
-    # Allow manual trigger
-
 permissions:
-  contents: write
-  pull-requests: write
-
-env:
-  DEPENDENCY_NAME: PocketBase
-  DOCKERFILE_PATH: Dockerfile
-  DOCKERFILE_VERSION_KEY: POCKETBASE_VERSION
-  DOCKERFILE_OS_VERSION_KEY: ALPINE_VERSION
-
+  contents: read
 jobs:
-  update-version:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Configure Git user
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-
-      - name: Get current PocketBase version
-        id: get-current
-        run: |
-          get_version() { grep "ARG $1=" "$DOCKERFILE_PATH" | cut -d '=' -f2 | tr -d '[:space:]'; }
-          version="$(get_version "$DOCKERFILE_VERSION_KEY")"
-          os_version="$(get_version "$DOCKERFILE_OS_VERSION_KEY")"
-
-          echo "📦 Current PocketBase version: $version (Alpine: $os_version)"
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "os_version=$os_version" >> $GITHUB_OUTPUT
-
-      - name: Get latest PocketBase version from GitHub
-        id: get-latest
-        run: |
-          # Fetch latest PocketBase version
-          version="$(curl -sSfL -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-            https://api.github.com/repos/pocketbase/pocketbase/releases/latest \
-            | jq -r '.tag_name' | tr -d 'v')"
-
-          if [ -z "$version" ]; then
-            echo "❌ Failed to fetch latest PocketBase version" >&2
-            exit 1
-          fi
-
-          # Fetch latest Alpine version
-          os_version="$(curl -sSfL https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/latest-releases.yaml \
-            | grep 'version:' | head -1 | awk '{print $2}' | tr -d '[:space:]')"
-
-          # Verify Alpine version exists on Docker Hub
-          docker_alpine_tag_status=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://hub.docker.com/v2/repositories/library/alpine/tags/$os_version/")
-
-          if [ "$docker_alpine_tag_status" -ne 200 ]; then
-            os_version="${{ steps.get-current.outputs.os_version }}"
-            echo "⚠️  Failed to fetch latest Alpine version, using existing: $os_version"
-          fi
-
-          echo "✅ Latest PocketBase version: $version (Alpine: $os_version)"
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "os_version=$os_version" >> $GITHUB_OUTPUT
-
-      - name: Check if update is needed
-        id: check
-        run: |
-          current_version="${{ steps.get-current.outputs.version }}"
-          latest_version="${{ steps.get-latest.outputs.version }}"
-          current_os="${{ steps.get-current.outputs.os_version }}"
-          latest_os="${{ steps.get-latest.outputs.os_version }}"
-
-          if [ "$latest_version" = "$current_version" ] && [ "$latest_os" = "$current_os" ]; then
-            echo "✅ Already up to date!"
-            echo "up_to_date=true" >> $GITHUB_OUTPUT
-          else
-            echo "🔄 Update available: $current_version → $latest_version"
-            echo "up_to_date=false" >> $GITHUB_OUTPUT
-          fi
-
-
-
-      - name: Setup Go
-        if: steps.check.outputs.up_to_date == 'false'
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
         with:
-          go-version: '1.25'
-
-      - name: Update Files and Push
-        if: steps.check.outputs.up_to_date == 'false'
+          persist-credentials: false
+      - name: Compare official release to tested pin
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${{ steps.get-latest.outputs.version }}"
-          os_version="${{ steps.get-latest.outputs.os_version }}"
-          
-          # Update Dockerfile versions
-          sed -i "s|ARG $DOCKERFILE_VERSION_KEY=.*|ARG $DOCKERFILE_VERSION_KEY=$version|" "$DOCKERFILE_PATH"
-          sed -i "s|ARG $DOCKERFILE_OS_VERSION_KEY=.*|ARG $DOCKERFILE_OS_VERSION_KEY=$os_version|" "$DOCKERFILE_PATH"
-
-          # Update Go version in Dockerfile from go.mod (if exists beforehand or after update? Better after)
-          # We do Go updates first
-
-          # Update Go dependencies if pb_hooks exists
-          if [ -d "pb_hooks" ]; then
-            echo "⬆️ Updating Go module dependencies in pb_hooks..."
-            cd pb_hooks
-            go get github.com/pocketbase/pocketbase@v$version
-            go mod tidy
-            cd ..
+          current=$(sed -n 's/^ARG VERSION=//p' Dockerfile)
+          latest=$(gh api repos/pocketbase/pocketbase/releases/latest --jq '.tag_name')
+          echo "Pinned PocketBase: $current. Latest official release: $latest." >> "$GITHUB_STEP_SUMMARY"
+          if [ "v$current" != "$latest" ]; then
+            echo 'An update is available. Update both container pins and local binary, run schema/backup restore tests, and review before deployment.' >> "$GITHUB_STEP_SUMMARY"
           fi
-
-          # Update Go dependencies in root if go.mod exists
-          if [ -f "go.mod" ]; then
-            echo "⬆️ Updating root Go module dependencies..."
-            go get github.com/pocketbase/pocketbase@v$version
-            go mod tidy
-          fi
-
-          # Update Go version in Dockerfile from go.mod
-          if [ -f "go.mod" ]; then
-            go_version=$(grep "^go " go.mod | awk '{print $2}')
-            if [ -n "$go_version" ]; then
-              echo "✅ Found Go version: $go_version"
-              sed -i "s|ARG GO_VERSION=.*|ARG GO_VERSION=$go_version|" "$DOCKERFILE_PATH"
-            fi
-          fi
-
-          # Update CHANGELOG if exists
-          if [ -f "CHANGELOG.md" ]; then
-            sed -i "2i\\## [v$version] - $(date +%Y-%m-%d)\n\n- Updated PocketBase to v$version\n- Updated Alpine Linux to v$os_version\n" CHANGELOG.md
-          fi
-
-          # Commit changes
-          git add .
-          git commit -m "chore: update PocketBase to v$version" -m "- Update PocketBase from v${{ steps.get-current.outputs.version }} to v$version" -m "- Update Alpine Linux to v$os_version" -m "" -m "Auto-generated by GitHub Actions workflow"
-
-          # Push changes directly to master
-          echo "🚀 Pushing changes to master..."
-          git push origin master
-
-          echo "✅ Database and Dockerfile updated!"
-
-      - name: Setup Fly.io CLI
-        if: steps.check.outputs.up_to_date == 'false'
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy to Fly.io
-        if: steps.check.outputs.up_to_date == 'false'
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          echo "🚀 Starting automated deployment to Fly.io..."
-          flyctl deploy --remote-only --ha=false
-          echo "✅ Deployment completed successfully!"

@@ -1,151 +1,39 @@
-# 🚀 PocketBase Docker for Fly.io
+# Al-Salam PocketBase deployment
 
-PocketBase&trade; is an open source backend consisting of embedded database (SQLite) with realtime subscriptions, built-in auth management, convenient dashboard UI and simple REST-ish API.
+This repository runs the official PocketBase **0.40.4** binary with checksum verification and Al-Salam's versioned JavaScript schema/hooks. Production uses the same backend code as the Flutter workspace's `pocketbase/` directory.
 
-This repository provides a production-ready Docker setup for deploying PocketBase to [Fly.io](https://fly.io) with automated updates and CI/CD.
+The retired custom Go entrypoints and modules have been removed. All application customization now lives in the synchronized JavaScript hooks and migrations. A Go toolchain is not required.
 
-## ✨ Features - Deploy Once, Forget Forever!
+## Local run
 
-- 🤖 **100% Automated** - Zero manual maintenance required!
-- 🔄 **Auto-Updates** - Daily checks → Auto-PR → Auto-merge → Auto-deploy
-- 💾 **Auto-Backups** - Daily database backups (30-day retention)
-- 🚢 **Auto-Deploy** - Merges trigger instant deployment
-- 🧪 **Auto-Testing** - PRs validated automatically
-- 🐳 **Optimized Docker** - Multi-stage build with Alpine Linux
-- ☁️ **Fly.io Ready** - Pre-configured for instant deployment
-- 🔒 **Security First** - Encryption, HTTPS, comprehensive security guide
-- 📦 **Persistent Storage** - Volume mounting for SQLite database
-- 📊 **Health Checks** - Automatic monitoring and recovery
-- 🔄 **Auto-Scaling** - Scale to zero for cost savings
-
-## 🚀 Quick Start
-
-### Deploy to Fly.io (5 minutes)
-
-```bash
-# 1. Clone this repository
-git clone https://github.com/Muayyad1999/pocketbase-flyio.git
-cd pocketbase-flyio
-
-# 2. Login to Fly.io
-fly auth login
-
-# 3. Create persistent volume
-fly volumes create pb_data --region ams --size 1
-
-# 4. Set encryption key (recommended)
-fly secrets set POCKETBASE_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-
-# 5. Deploy!
-fly deploy
-
-# 6. Open your app
-fly open
+```sh
+docker compose up --build -d
 ```
 
-**📖 For detailed deployment instructions, see [DEPLOY.md](DEPLOY.md)**
+In the Fly companion this listens at `http://127.0.0.1:8090` and persists data in the named `pb_data` volume. Use `.env.example` for optional initialization and server-only integration secrets. There are no default superuser credentials. Existing accounts are preserved unless `POCKETBASE_ADMIN_UPSERT=true` is explicitly set.
 
-## 📚 Documentation
+## Fly deployment
 
-- [⚡ Quick Start](QUICKSTART.md) - 5-minute deployment
-- [🤖 Automation Guide](AUTOMATION.md) - **Complete automation setup (READ THIS!)**
-- [🚀 Deployment Guide](DEPLOY.md) - Detailed deployment walkthrough
-- [🔒 Security Guide](SECURITY.md) - Security best practices
-- [🤝 Contributing Guide](CONTRIBUTING.md) - Development guidelines
-- [📝 Changelog](CHANGELOG.md) - Version history
-- [PocketBase Official Docs](https://pocketbase.io/docs)
+The Fly companion targets `al-salam-sys`, region `ams`, data volume `pb_data` mounted at `/pocketbase/data`. Deploy one writable database machine with `flyctl deploy --remote-only --ha=false`. Keep the existing settings encryption key. The generic Docker companion targets a separate optional `pocketbase-ams` app and mounts `/pb_data`.
 
+## Canonical backend updates
 
-## 🤖 Automated Updates
+From the parent Flutter workspace run `python scripts/sync_backend.py` after changing `pocketbase/pb_hooks` or `pocketbase/pb_migrations`, then commit the synchronized copies in this repository. Each repository's GitHub workflow only runs when that repository itself is updated.
 
-This repository includes a GitHub Actions workflow that:
+## Workflows
 
-- ✅ Checks for new PocketBase releases **daily**
-- ✅ Automatically creates a Pull Request with version updates
-- ✅ Updates the CHANGELOG.md
-- ✅ Can be triggered manually via GitHub Actions
+- Container CI loads the built image, checks CLI commands, starts a fresh migrated database and probes the API.
+- Manual Fly deployment requires successful container verification and `FLY_API_TOKEN`.
+- Image publishing is manually triggered and produces pinned version and commit tags.
+- The weekly upstream version check reports available releases for review; it never directly updates or deploys the database.
+- The manual backup workflow uses PocketBase's consistent snapshot API with `PB_BACKUP_EMAIL` and `PB_BACKUP_PASSWORD`. Daily backup automation belongs to the application repository. Configure private S3 backup storage in PocketBase and periodically test restores. The latest 30 `scheduled_*` snapshots are retained; manual backups are preserved.
 
-**Current Version:** PocketBase v0.35.1 on Alpine Linux 3.22.2
+See the parent Flutter workspace's `docs/DEPLOYMENT.md` for complete signing, Firebase, secrets and restore instructions. Consult [PocketBase's production guide](https://pocketbase.io/docs/going-to-production/) and [Fly configuration reference](https://fly.io/docs/reference/configuration/).
+# Production automation ownership
 
-### Enable Auto-Deployment (Optional)
-
-To enable automatic deployment to Fly.io when PRs are merged:
-
-1. Generate a Fly.io deploy token:
-   ```bash
-   fly tokens create deploy
-   ```
-
-2. Add it as a GitHub Secret:
-   - Go to: Repository → Settings → Secrets → Actions
-   - Name: `FLY_API_TOKEN`
-   - Value: [your token]
-
-Now every push to `master` will automatically deploy to Fly.io! 🎉
-
-## 🐳 Docker Usage
-
-### Build Locally
-
-```bash
-docker build -t pocketbase:local .
-```
-
-### Run with Docker Compose
-
-```bash
-docker compose up -d
-```
-
-Access at: `http://localhost:8090`
-
-
-## Configuration
-
-### Environment variables
-
-When you start the PocketBase&trade; image, you can adjust the configuration of the instance by passing one or more environment variables either on the docker-compose file or on the `docker run` command line. If you want to add a new environment variable:
-
-- For docker-compose add the variable name and value under the application section in the [`docker-compose.yml`](https://github.com/Muayyad1999/pocketbase-flyio/blob/master/docker-compose.example.yml) file present in this repository:
-
-    ```yaml
-    pocketbase:
-      ...
-      environment:
-        - USER_DEFINED_KEY=custom_value
-      ...
-    ```
-
-- For manual execution add a `--env` option with each variable and value:
-
-    ```console
-    $ docker run -d --name pocketbase -p 80:8090 \
-      --env USER_DEFINED_KEY=custom_value \
-      --network pocketbase_network \
-      --volume /path/to/pocketbase-persistence:/pocketbase \
-      muayyad1999/pocketbase:latest
-    ```
-
-Available environment variables:
-
-##### General configuration
-
-- `POCKETBASE_DEBUG`: Verbose mode. Default: **false**
-- `POCKETBASE_PORT_NUMBER`: PocketBase&trade; server port number. Default: **8090**
-- `POCKETBASE_OPTS`: Additional options for bootstrap server. No defaults.
-- `POCKETBASE_ADMIN_EMAIL`: Admin user email. No defaults.
-- `POCKETBASE_ADMIN_PASSWORD`: Admin user password. It is possible to use Docker secrets to define the value or set the `POCKETBASE_ADMIN_PASSWORD_FILE` variable which will contain the path where the value is stored. No defaults.
-- `POCKETBASE_ADMIN_UPSERT`: If set to `true`, the admin user always is set from environment variables before the server starts. Otherwise, set to `false` for only create in the first startup. Default: **true**
-
-##### Encryption
-
-- `POCKETBASE_ENCRYPTION_KEY`: The variable is used to encrypt the applications settings in PocketBase's database. By default, these settings are stored as plain JSON text, which may not be suitable for production environments where security is a concern. When you set this variable to a value, PocketBase will use it to encrypt the settings before storing them in the database. This provides an additional layer of protection against unauthorized access to your application's sensitive data, such as OAuth2 client secrets and SMTP passwords. (ref.: [pocketbase.io](https://pocketbase.io/docs/going-to-production/#enable-settings-encryption))
-- `POCKETBASE_ENCRYPTION_KEY_FILE`: Alternative to `POCKETBASE_ENCRYPTION_KEY` environment variable. If Docker manages the secret, this variable is used to reference the name with which the secret was created. An absolute path can also be specified if the secret was mounted as a file using a volume. Default: **POCKETBASE_ENCRYPTION_KEY**
-
-##### Directories
-
-- `POCKETBASE_WORKDIR` Persistence base directory. Default: **/pocketbase**
-- `POCKETBASE_DATA_DIR` PocketBase data directory. Default: **${POCKETBASE_WORKDIR}/data**
-- `POCKETBASE_MIGRATION_DIR` The directory with the user defined migrations. Default: **${POCKETBASE_WORKDIR}/migrations**
-- `POCKETBASE_PUBLIC_DIR` The directory to serve static files. Default: **${POCKETBASE_WORKDIR}/public**
-- `POCKETBASE_HOOK_DIR` The directory with the JS app hooks. Default: **${POCKETBASE_WORKDIR}/hooks**
+The application repository
+[al_salam_accounting_flutter](https://github.com/Muayyad1999/al_salam_accounting_flutter)
+owns automatic production deployment and daily verified backups. This companion
+contains the same tested PocketBase source for standalone builds and manual
+operations. Its deployment and backup workflows are manual only, preventing two
+repositories from independently deploying the same database machine.

@@ -1,35 +1,24 @@
 app = "al-salam-sys"
 primary_region = "ams"
-
 [deploy]
-strategy = "immediate"
-
+  strategy = "immediate"
 [http_service]
-auto_start_machines = true
-auto_stop_machines = "stop"
-force_https = true
-internal_port = 8090
-min_machines_running = 0
-processes = [ "app" ]
-
-[http_service.concurrency]
-type = "connections"
-hard_limit = 100
-soft_limit = 80
-
+  internal_port = 8090
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
 [[http_service.checks]]
-grace_period = "10s"
-interval = "30s"
-method = "GET"
-path = "/_/"
-timeout = "5s"
-
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"
+  method = "GET"
+  path = "/api/health"
 [[mounts]]
-destination = "/pocketbase/data"
-source = "pb_data"
-
+  source = "pb_data"
+  destination = "/pocketbase/data"
 [[vm]]
-  memory = '256mb'
-  cpu_kind = 'shared'
+  memory = "256mb"
+  cpu_kind = "shared"
   cpus = 1
-

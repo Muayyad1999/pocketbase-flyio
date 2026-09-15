@@ -1,169 +1,24 @@
-name: Automated Database Backup
-
+name: Consistent Database Backup
 on:
-  schedule:
-    # Run daily at 3 AM UTC
-    - cron: '0 3 * * *'
   workflow_dispatch:
-    # Allow manual trigger
-
 permissions:
-  contents: write
-
+  contents: read
+concurrency:
+  group: pocketbase-backup
+  cancel-in-progress: false
 jobs:
   backup:
-    name: Backup PocketBase Database
-    runs-on: ubuntu-latest
-
-    # Only run on main repository (not forks)
     if: github.repository_owner == 'Muayyad1999'
-
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Fly.io CLI
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Create backup
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          echo "📦 Starting automated backup..."
-          APP_NAME="al-salam-sys"
-          DATE=$(date +%Y%m%d-%H%M%S)
-          BACKUP_FILE="pocketbase-backup-${DATE}.tar.gz"
-
-          # ==============================================================================
-          # 1. Ensure Fly.io App Machines are Running
-          # ==============================================================================
-          echo "Checking machine status for $APP_NAME..."
-          
-          # List machines in JSON format
-          MACHINES_JSON=$(flyctl machines list -a "$APP_NAME" --json)
-          
-          # Check for started machines
-          STARTED_COUNT=$(echo "$MACHINES_JSON" | jq '[.[] | select(.state == "started")] | length')
-          
-          if [ "$STARTED_COUNT" -gt 0 ]; then
-            echo "✅ Found $STARTED_COUNT running machine(s)."
-          else
-            echo "⚠️ No running machines found. Attempting to start stopped machines..."
-            
-            STOPPED_IDS=$(echo "$MACHINES_JSON" | jq -r '.[] | select(.state == "stopped") | .id')
-            
-            if [ -z "$STOPPED_IDS" ]; then
-              echo "❌ No machines found (started or stopped). Please check your Fly.io deployment."
-              exit 1
-            fi
-            
-            for ID in $STOPPED_IDS; do
-              echo "Starting machine $ID..."
-              flyctl machine start "$ID" -a "$APP_NAME"
-            done
-            
-            # Wait for machines to initialize
-            echo "Waiting 30s for machines to stabilize..."
-            sleep 30
-          fi
-
-          # ==============================================================================
-          # 2. Create Backup on Server
-          # ==============================================================================
-          echo "Creating backup on Fly.io server..."
-          
-          # Retry logic for SSH connection which can be flaky immediately after start
-          MAX_RETRIES=3
-          COUNT=0
-          SUCCESS=0
-          
-          while [ $COUNT -lt $MAX_RETRIES ]; do
-            if flyctl ssh console -a "$APP_NAME" -C "/bin/sh -c 'cd /pocketbase/data && tar -czf /tmp/backup.tar.gz data.db data.db-shm data.db-wal 2>/dev/null || tar -czf /tmp/backup.tar.gz data.db'"; then
-              SUCCESS=1
-              break
-            fi
-            echo "⚠️ SSH command failed. Retrying in 10s..."
-            sleep 10
-            COUNT=$((COUNT+1))
-          done
-
-          if [ $SUCCESS -eq 0 ]; then
-            echo "❌ Failed to create backup on server after $MAX_RETRIES attempts."
-            exit 1
-          fi
-
-          # ==============================================================================
-          # 3. Download Backup
-          # ==============================================================================
-          echo "Downloading backup..."
-          mkdir -p backups
-          if ! flyctl ssh sftp get -a "$APP_NAME" /tmp/backup.tar.gz "backups/${BACKUP_FILE}"; then
-            echo "❌ Failed to download backup."
-            exit 1
-          fi
-
-          # ==============================================================================
-          # 4. Cleanup Remote
-          # ==============================================================================
-          echo "Cleaning up remote backup..."
-          flyctl ssh console -a "$APP_NAME" -C "rm /tmp/backup.tar.gz" || echo "⚠️ Warning: Failed to cleanup remote file"
-
-          echo "✅ Backup completed: ${BACKUP_FILE}"
-          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
-
-      - name: Upload backup artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v7.0.1
         with:
-          name: pocketbase-backup-${{ github.run_number }}
-          path: backups/
-          retention-days: 30
-          compression-level: 9
-
-      - name: ☁️ Upload to Offsite Storage (S3/R2/GDrive)
+          persist-credentials: false
+      - name: Create and verify server snapshot
         env:
-          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
-          REMOTE_DEST: ${{ secrets.REMOTE_DEST }} # e.g., "my-s3:backups" or "gdrive:/Backups"
-        run: |
-          if [ -z "$RCLONE_CONF" ]; then
-            echo "⚠️  RCLONE_CONF secret is not set. Skipping offsite backup."
-            exit 0
-          fi
-          
-          echo "Installing Rclone..."
-          curl https://rclone.org/install.sh | sudo bash
-          
-          echo "Configuring Rclone..."
-          mkdir -p ~/.config/rclone
-          echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
-          
-          echo "🚀 Uploading backup to remote storage: $REMOTE_DEST"
-          rclone copy "backups/$BACKUP_FILE" "$REMOTE_DEST" -v
-          
-          echo "✅ Upload complete!"
-
-      - name: Commit backup to repository (optional)
-        if: false  # Set to true if you want backups in git
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add backups/
-          git commit -m "chore: automated database backup" || echo "No changes to commit"
-          git push
-
-      - name: Backup summary
-        run: |
-          BACKUP_SIZE=$(du -h backups/$BACKUP_FILE | cut -f1)
-          echo "## 📦 Backup Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- **File:** \`$BACKUP_FILE\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Size:** ${BACKUP_SIZE}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Retention:** 30 days" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Backup stored as GitHub artifact" >> $GITHUB_STEP_SUMMARY
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "❌ Backup failed!" >> $GITHUB_STEP_SUMMARY
-          echo "Check the logs for details." >> $GITHUB_STEP_SUMMARY
+          POCKETBASE_URL: ${{ vars.POCKETBASE_URL || 'https://al-salam-sys.fly.dev' }}
+          PB_BACKUP_EMAIL: ${{ secrets.PB_BACKUP_EMAIL }}
+          PB_BACKUP_PASSWORD: ${{ secrets.PB_BACKUP_PASSWORD }}
+        run: python3 scripts/backup.py

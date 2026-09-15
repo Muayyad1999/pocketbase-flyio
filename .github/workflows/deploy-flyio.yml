@@ -1,76 +1,32 @@
 name: Deploy to Fly.io
-
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'Dockerfile'
-      - 'fly.toml'
-      - 'scripts/**'
-      - 'pb_hooks/**'
-      - 'pb_migrations/**'
-      - '.github/workflows/deploy-flyio.yml'
   workflow_dispatch:
-    # Allow manual deployment
-
+permissions:
+  contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
+  group: fly-production
+  cancel-in-progress: false
 jobs:
+  verify:
+    uses: ./.github/workflows/test-pr.yml
   deploy:
-    name: Deploy to Fly.io
-    runs-on: ubuntu-latest
-
-    # Only run on main repository (not forks)
+    needs: verify
     if: github.repository_owner == 'Muayyad1999'
-
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Fly.io CLI
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy to Fly.io
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - name: Validate and deploy single database machine
         run: |
-          echo "🚀 Deploying to Fly.io..."
+          test -n "$FLY_API_TOKEN" || { echo 'FLY_API_TOKEN is required.'; exit 1; }
+          flyctl config validate
           flyctl deploy --remote-only --ha=false
-          echo "✅ Deployment completed!"
-
-      - name: Enforce Memory Limit (Cost Saving)
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          echo "💰 Enforcing 256MB RAM limit to save costs..."
-          flyctl scale memory 256
-          echo "✅ Memory limit enforced!"
-
-      - name: Get deployment status
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          echo "📊 Checking deployment status..."
           flyctl status
-          echo "✅ Application is running!"
-
-      - name: Run health check
-        run: |
-          echo "🏥 Running health check..."
-          APP_URL="https://al-salam-sys.fly.dev"
-
-          # Wait for app to be ready
-          sleep 10
-
-          # Check if app responds
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/_/")
-
-          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 301 ] || [ "$HTTP_CODE" -eq 302 ]; then
-            echo "✅ Health check passed! (HTTP $HTTP_CODE)"
-          else
-            echo "⚠️  Health check returned HTTP $HTTP_CODE"
-            echo "App might still be starting up..."
-          fi
+          curl --fail --retry 8 --retry-all-errors --retry-delay 5 --max-time 30 https://al-salam-sys.fly.dev/api/health
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 5 --max-time 30 https://al-salam-sys.fly.dev/api/accounting/status | python3 -c 'import json,sys; assert json.load(sys.stdin).get("schema_version", 0) >= 3, "Accounting schema 3 is required"'
