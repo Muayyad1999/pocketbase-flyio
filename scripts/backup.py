@@ -1,8 +1,9 @@
 """Create, download and validate a consistent private PocketBase backup.
 
 Credentials are accepted only from the process environment. Downloaded business
-data belongs in private temporary storage and must never be published as a CI
-artifact. Optional restore verification runs only on an isolated local copy.
+data belongs in private temporary storage. Only authenticated encrypted snapshots
+may be retained as CI artifacts in an explicitly private repository. Optional
+restore verification runs only on an isolated local copy.
 """
 from __future__ import annotations
 
@@ -27,6 +28,8 @@ import zipfile
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--download', type=Path, help='Keep the verified ZIP at this private path.')
+    parser.add_argument('--encrypted-output', type=Path,
+                        help='Keep only an authenticated, roundtrip-verified encrypted snapshot here.')
     parser.add_argument('--restore-test-binary', type=Path,
                         help='Run the accounting restore contract against this PocketBase executable.')
     args = parser.parse_args()
@@ -38,6 +41,14 @@ def main() -> None:
         raise SystemExit('HTTPS POCKETBASE_URL and PB_BACKUP_EMAIL/PB_BACKUP_PASSWORD secrets are required.')
     if args.download and args.download.exists():
         raise SystemExit('Download target already exists; choose a new private path.')
+    if args.encrypted_output:
+        from backup_crypto import recovery_key, transform
+        encryption_key = recovery_key()
+        settings_key = os.environ.get('PB_SETTINGS_ENCRYPTION_KEY', '')
+        if len(settings_key) != 32:
+            raise SystemExit('PB_SETTINGS_ENCRYPTION_KEY must contain the original 32-character settings key.')
+        if args.encrypted_output.exists():
+            raise SystemExit('Encrypted destination already exists; choose a new path.')
     root = Path(__file__).resolve().parents[1]
     verifier = root / 'tool/backend/verify_backend.py'
     if args.restore_test_binary and (not args.restore_test_binary.is_file() or not verifier.is_file()):
@@ -58,6 +69,8 @@ def main() -> None:
 
     auth = request('/api/collections/_superusers/auth-with-password', 'POST', {'identity': email, 'password': password})
     token = auth['token']
+    recovery_settings = request('/api/settings', token=token) if args.encrypted_output else None
+    recovery_collections = request('/api/collections?perPage=500', token=token)['items'] if args.encrypted_output else None
     name = 'scheduled_' + datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S') + '.zip'
     request('/api/backups', 'POST', {'name': name}, token)
     for _ in range(60):
@@ -100,12 +113,45 @@ def main() -> None:
                 raise RuntimeError('The downloaded database failed its SQLite integrity check.')
             if db.execute('PRAGMA foreign_key_check').fetchall():
                 raise RuntimeError('The downloaded database has broken foreign keys.')
+            names = [row[0] for row in db.execute("SELECT name FROM _collections WHERE type IN ('base','auth') AND system=0")]
+            counts = {name: db.execute('SELECT COUNT(*) FROM "' + name.replace('"', '""') + '"').fetchone()[0]
+                      for name in names}
+        restore_archive = archive
+        if args.encrypted_output:
+            recovery_bundle = private / 'recovery-bundle.zip'
+            manifest = {'format': 1, 'backend': base, 'backup_name': name, 'counts': counts,
+                        'backup_sha256': digest.hexdigest(), 'settings': recovery_settings,
+                        'collections': recovery_collections}
+            with zipfile.ZipFile(recovery_bundle, 'x', compression=zipfile.ZIP_STORED) as bundle:
+                bundle.write(archive, 'pocketbase.zip')
+                bundle.writestr('settings-encryption.key', settings_key)
+                bundle.writestr('manifest.json', json.dumps(manifest))
+            encrypted = private / 'production-backup.cob'
+            decrypted = private / 'recovered-bundle.zip'
+            transform(recovery_bundle, encrypted, encryption_key)
+            transform(encrypted, decrypted, encryption_key, decrypt=True)
+            with decrypted.open('rb') as recovered, recovery_bundle.open('rb') as original:
+                if hashlib.file_digest(recovered, 'sha256').digest() != hashlib.file_digest(original, 'sha256').digest():
+                    raise RuntimeError('Encrypted backup recovery checksum does not match the original.')
+            restore_archive = private / 'recovered-pocketbase.zip'
+            with zipfile.ZipFile(decrypted) as bundle, bundle.open('pocketbase.zip') as source, restore_archive.open('xb') as destination:
+                shutil.copyfileobj(source, destination)
+            if args.restore_test_binary:
+                import sys
+                subprocess.run([sys.executable, str(root / 'tool/backend/verify_recovery.py'),
+                                '--binary', str(args.restore_test_binary.resolve()), '--bundle', str(decrypted)], check=True)
         if args.restore_test_binary:
             # The verifier creates a separate disposable database, never writes to
             # production, and removes its generated users/transactions with that copy.
             import sys
             subprocess.run([sys.executable, str(verifier), '--binary', str(args.restore_test_binary.resolve()),
-                            '--backup', str(archive)], check=True)
+                            '--backup', str(restore_archive)], check=True)
+        if args.encrypted_output:
+            args.encrypted_output.parent.mkdir(parents=True, exist_ok=True)
+            with encrypted.open('rb') as source, args.encrypted_output.open('xb') as destination:
+                args.encrypted_output.chmod(0o600)
+                shutil.copyfileobj(source, destination)
+            print('Encrypted snapshot authenticated, decrypted and checksum-verified before retention.')
         if args.download:
             args.download.parent.mkdir(parents=True, exist_ok=True)
             with archive.open('rb') as source, args.download.open('xb') as destination:
